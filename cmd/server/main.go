@@ -1,0 +1,83 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"convert2text/internal/config"
+	"convert2text/internal/handler"
+	"convert2text/internal/middleware"
+	"convert2text/internal/web"
+)
+
+func main() {
+	cfg := config.Load()
+
+	// Initialize Concurrency Limiter for Compute Optimization
+	limiter := middleware.NewConcurrencyLimiter(cfg.MaxConcurrentExtractions)
+	extractHandler := handler.NewExtractHandler(cfg)
+
+	mux := http.NewServeMux()
+
+	// REST API Endpoints with concurrency throttle & extraction queue
+	limitedExtractJSON := limiter.Limit(5 * time.Second)(http.HandlerFunc(extractHandler.HandleExtractJSON))
+	limitedExtractRaw := limiter.Limit(5 * time.Second)(http.HandlerFunc(extractHandler.HandleExtractRaw))
+	limitedExtractBundle := limiter.Limit(5 * time.Second)(http.HandlerFunc(extractHandler.HandleExtractBundle))
+
+	mux.Handle("POST /api/v1/extract", limitedExtractJSON)
+	mux.Handle("POST /api/v1/extract/raw", limitedExtractRaw)
+	mux.Handle("POST /api/v1/extract/bundle", limitedExtractBundle)
+	mux.Handle("GET /api/v1/health", handler.HealthHandler(limiter))
+	mux.HandleFunc("GET /api/v1/assets/", extractHandler.HandleGetAsset)
+	mux.HandleFunc("GET /assets/", extractHandler.HandleGetAsset)
+
+	// Web UI Frontend (embedded static files)
+	mux.Handle("/", web.Handler())
+
+	// Apply Security & Max Upload Size Middleware globally
+	rootHandler := middleware.SecurityMiddleware(cfg.MaxUploadSizeBytes)(mux)
+
+	server := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           rootHandler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	// Server runner goroutine
+	go func() {
+		log.Printf("==========================================================")
+		log.Printf(" Convert2Text Server is running at http://localhost:%s", cfg.Port)
+		log.Printf(" Max Upload Size      : %d MB", cfg.MaxUploadSizeBytes/(1024*1024))
+		log.Printf(" Concurrency Workers  : %d slots", cfg.MaxConcurrentExtractions)
+		log.Printf(" Decompression Limit  : %d MB", cfg.MaxDecompressedSizeBytes/(1024*1024))
+		log.Printf("==========================================================")
+
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	// Graceful shutdown listener
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server gracefully...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	fmt.Println("Server exiting")
+}
