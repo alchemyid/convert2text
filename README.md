@@ -1,43 +1,126 @@
 # Convert2Text 🚀
 
-> **High-Performance Document-to-Markdown/Text Extraction Engine in Go**  
-> Ekstraksi dokumen **PDF**, **Word (.docx)**, **Excel (.xlsx, .xls)**, dan **PowerPoint (.pptx)** ke format **Markdown (.md)** atau **Plain Text (.txt)**.
+> **High-Performance Document-to-Markdown Extraction Engine (Python Dual-Engine)**  
+> Ekstraksi dokumen **PDF**, **Word (.docx)**, **Excel (.xlsx, .xls)**, dan **PowerPoint (.pptx)** ke format **Markdown (.md)** atau **Plain Text (.txt)** siap pakai untuk LLM / AI Agent & Solutioning RFP.
 
-Dilengkapi dengan **REST API** (mendukung binary & multipart upload) dan **Modern Web UI** yang di-embed langsung ke dalam single binary.
+Dilengkapi dengan **FastAPI REST API**, **CLI Dispatcher**, dan **Modern Glassmorphism Web UI**.
 
 ---
 
 ## 🌟 Fitur Utama
 
-- 📄 **Multiformat Support**: PDF, DOCX, XLSX, dan PPTX.
+- ⚡ **Dual Engine Architecture**:
+  1. **Local Engine (Default - Rp 0 Cost)**:
+     - 100% lokal, cepat (~1.6s untuk 10 halaman PDF), privat, dan bebas biaya token/API.
+     - Menggunakan `pdfplumber` untuk mendeteksi garis batas sel tabel fisik secara dinamis tanpa hardcode.
+     - Menggunakan `PyMuPDF` (`pymupdf`) untuk dekode font CMap sempurna (italic, bold, symbols).
+     - Menangani tabel lanjutan: multi-row header merging, pemotongan halaman berantai (*page-break continuation*), dan penggabungan sub-kolom bullet.
+  2. **Cloud Precision Engine (Opsi Azure Document Intelligence)**:
+     - Menggunakan Azure Document Intelligence `prebuilt-layout` model untuk dokumen hasil scan kompleks, formulir matriks, atau teks multi-kolom padat.
 - 🤖 **Microsoft Azure AI Vision (Solutioning & Architecture Insights)**:
-  - Ekstraksi informasi visual dari diagram arsitektur sistem, bagan alur, tabel gambar, dan screenshot menggunakan **Azure AI Vision Image Analysis 4.0**.
-  - **Diagram OCR / Inscriptions (`readResult`)**: Membaca seluruh teks di dalam gambar/diagram (nama server, API endpoint, database, protokol, dsb.) yang biasanya hilang pada ekstraksi teks standar.
-  - **Contextual Tags & Objects**: Mengidentifikasi kategori konseptual (`cloud computing`, `software architecture`, `database`) serta komponen sistem visual.
-  - **In-Context Solutioning Markdown**: Hasil analisis disematkan langsung di alur Markdown/Text pada posisi gambar muncul, sangat ideal untuk penyusunan arsitektur solusi, RFP/tender, dan konsumsi LLM / AI Agent.
-- 🖼️ **AI Agent Image Extraction & Semantic Placeholders**:
-  - Mengekstrak gambar/diagram dari DOCX, PPTX, PDF, dan Excel ke asset store (`/api/v1/assets/{id}`).
-  - Menyematkan referensi semantik terstruktur (`[IMAGE: name | Alt: descr]`) langsung di alur Markdown/Text.
-  - **Menghemat 80%–95% Vision Tokens** saat dokumen dikirim ke LLM / AI Agent.
-- 📊 **Smart Table & Layout Detection**:
-  - Deteksi tabel otomatis dan rendering ke Markdown table rapi.
-  - Dynamic CMap ToUnicode resolver memperbaiki decoding font subset kustom.
+  - Analisis diagram arsitektur, bagan alur, dan OCR visual diagram teknis via **Azure AI Vision Image Analysis 4.0**.
+  - **Smart Filtering**: Logo cover halaman 1 serta header/footer banner otomatis dilewati untuk menghemat kuota dan token LLM.
+- 📄 **Multiformat Support**: PDF, DOCX (`python-docx`), XLSX (`openpyxl`), PPTX (`python-pptx`).
 - 🔄 **2 Mode Akses**:
-  1. **REST API**: Integrasi langsung dengan backend aplikasi atau automasi Linux pipe.
-  2. **Web Interface**: Antarmuka drag-and-drop modern (glassmorphism dark mode) dengan live rendered markdown preview, raw editor, image gallery viewer, instant copy, dan download.
-- ⚡ **Compute & Resource Optimization**:
-  - **Worker Semaphore Limiter**: Membatasi penggunaan komputasi/CPU agar server tidak overload saat request tinggi.
-  - **Disk Spooling**: Payload stream disimpan sementara ke file disk temporer terisolasi, menjaga penggunaan RAM tetap rendah.
-  - **Excel Row Streaming**: Membaca baris Excel secara on-demand via row iterator tanpa memuat seluruh lembar kerja ke RAM.
-- 🛡️ **Security-First Architecture**:
-  - **Magic Bytes & Archive Structure Check**: Menolak file palsu / ekstensi spoofed.
-  - **Zip Bomb / Decompression Bomb Protection**: Enforce limit uncompressed bytes (`CountingLimitReader`) untuk DOCX, PPTX, dan XLSX.
-  - **Strict Request Size Boundary**: Batas upload (`http.MaxBytesReader`) mencegah DoS serangan ukuran besar.
-  - **Path Traversal Defense**: Sanitasi nama file ketat (`filepath.Base` dan regex replacement).
-  - **Security Headers & CORS**: `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`.
-- 🧩 **DRY (Don't Repeat Yourself)**:
-  - Unified `Extractor` interface & parser factory.
-  - Reusable streaming readers, table markdown formatters, text cleaners, dan response envelopes.
+  1. **REST API**: Endpoint `/api/v1/extract` (multipart) dan `/api/v1/extract/raw`.
+  2. **Web Interface**: Antarmuka drag-and-drop modern di `http://localhost:8080`.
+  3. **CLI Terminal**: Perintah CLI langsung untuk automasi batch script.
+
+---
+
+## 🔬 Detail Teknis & Arsitektur Sistem
+
+### 1. Latar Belakang & Efisiensi Biaya Token LLM
+Dalam proses penelaahan dokumen tender (*RFP / KAK*), mengunggah dokumen PDF mentah (50–200 halaman) secara langsung ke LLM Multimodal memiliki kelemahan fatal:
+- **Boros Token & Biaya Sangat Tinggi**: Dokumen 50 halaman dengan tabel matriks dapat mengonsumsi puluhan ribu hingga ratusan ribu token per sekali prompt.
+- **Halusinasi & Kerusakan Struktur Tabel**: LLM sering kali salah membaca baris tabel yang panjang atau terpotong halaman, sehingga spesifikasi krusial (seperti kapasitas RAM, vCPU, tipe disk) bergeser kolom.
+- **Font & Glyph Corruption**: Parser standar sering kali gagal membaca font subset kustom (misalnya font *italic* yang karakternya hilang atau berubah menjadi simbol aneh).
+
+**Convert2Text** hadir sebagai jembatan deterministik berkonsumsi **Rp 0 token** yang mengonversi dokumen mentah menjadi Markdown berkepadatan informasi tinggi (*high information density*), sehingga LLM/AI Agent dapat menganalisis data teknis secara presisi dan hemat biaya.
+
+---
+
+### 2. Arsitektur Pemrosesan PDF Hybrid (Local Engine)
+Pada mode lokal, Convert2Text menerapkan arsitektur hybrid yang menggabungkan keunggulan dua engine terkemuka:
+```
+                              [ File PDF Masuk ]
+                                       │
+                ┌──────────────────────┴──────────────────────┐
+                ▼                                             ▼
+     [ pdfplumber Engine ]                          [ PyMuPDF Engine ]
+  • Ekstraksi batas garis fisik                  • CMap ToUnicode decoding
+    (vector rules & line intersections)            (flawless italic, bold, symbol)
+  • Penentuan Bounding Box tabel                 • Ekstraksi teks non-tabel
+  • Rekonstruksi struktur grid sel               • Ekstraksi resolusi asli gambar
+                │                                             │
+                └──────────────────────┬──────────────────────┘
+                                       ▼
+                       [ Smart Table Normalizer ]
+                       • Filter sub-tabel terduplikasi (enclosed)
+                       • Auto merge multi-row headers
+                       • Sambung tabel putus antar halaman
+                       • Konsolidasi kolom bullet poin
+                                       ▼
+                       [ Natural Reading Flow Sorter ]
+                       (Urutkan elemen visual dari atas ke bawah)
+                                       ▼
+                         [ LLM-Ready Markdown Output ]
+```
+
+---
+
+### 3. Algoritma Cerdas Normalisasi Tabel (Zero Hardcoding)
+Tools ini dirancang agar **dapat digunakan untuk dokumen apapun secara umum** tanpa mengandalkan nama kolom atau koordinat piksel yang di-hardcode:
+
+1. **Deteksi Garis Vektor Fisik (`lines` strategy)**:
+   - Menggunakan koordinat garis horizontal dan vertikal fisik untuk membangun kotak pembatas (*bounding box*) setiap sel tabel.
+2. **Auto Multi-Row Header Merging**:
+   - Jika dokumen memiliki header bertingkat (misalnya baris 1 berisi `"Operating"`, baris 2 berisi `"System"`), sistem otomatis mendeteksi baris data pertama (berdasarkan pola identifikasi angka/data) dan menggabungkan baris-baris header di atasnya menjadi satu baris header Markdown yang valid.
+3. **Resolusi Tabel Terpotong Halaman (*Page-Break Continuation*)**:
+   - Pada PDF yang dicetak dari Word, garis horizontal pembuka di puncak halaman berikutnya sering kali tidak digambar ulang.
+   - Sistem secara otomatis mencari perpanjangan garis vertikal (*vertical edges*) yang menembus batas atas halaman, menutup batas sel yang terbuka secara virtual, dan mewariskan struktur header dari halaman sebelumnya.
+   - Hasil: Data seperti **Server03** (halaman 4) dan **Server45** (halaman 5) masuk secara sempurna ke dalam baris tabel tanpa ada baris yang terlempar keluar.
+4. **Pembersihan Kolom Pecah & Bullet Poin**:
+   - Jika Word membagi sel spesifikasi menjadi kolom simbol bullet (`•`) dan kolom deskripsi teks, sistem mengenali kolom tanpa header tersebut dan menyatukannya kembali ke kolom spesifikasi dengan pemisah `<br>`.
+5. **Eliminasi Sub-Tabel Bersarang (*Enclosed Tables*)**:
+   - Menghapus tabel-tabel semu yang bposisinya berada 100% di dalam tabel utama untuk mencegah duplikasi konten.
+
+---
+
+### 4. Strategi Visual Intelligence & Filter Cerdas Azure Vision
+Tidak semua gambar di dalam dokumen perlu dianalisis dengan AI Vision:
+- **Filtering Halaman Cover & Banner**: Gambar pada Halaman 1 (biasanya logo perusahaan, watermark, atau background cover) otomatis **dilewati**, menghemat 100% kuota panggilan API untuk gambar yang tidak informatif.
+- **Filtering Posisi & Dimensi**: Gambar dengan tinggi/lebar di bawah 150px (ikon/bullet) atau dengan aspect ratio ekstrem (> 4.0 atau < 0.25 seperti garis pemisah/banner) otomatis diabaikan.
+- **Ekstraksi Semantik Diagram**: Hanya diagram arsitektur sistem, topologi jaringan, atau flowchart yang dikirim ke Azure Vision API (`Image Analysis 4.0`). Hasil analisis (teks OCR diagram, tag teknologi, dan deskripsi sistem) disematkan langsung di alur Markdown dalam bentuk blockquote.
+
+---
+
+### 5. Cloud Precision Engine (Azure Document Intelligence)
+Untuk skenario khusus:
+- Menggunakan Azure Document Intelligence model `prebuilt-layout` dengan parameter `outputContentFormat=markdown`.
+- Sangat tangguh untuk dokumen hasil **scan fisik (gambar bitmap)**, tabel dengan banyak sel gabungan (*merged cells/rowspan/colspan*) yang sangat rumit, atau formulir tulisan tangan.
+- **Fail-Safe Automatic Fallback**: Jika API key Azure belum dikonfigurasi atau mengalami gangguan jaringan, sistem otomatis beralih ke `PDFLocalExtractor` tanpa membuat request gagal.
+
+---
+
+### 6. Format Dokumen Office
+- **DOCX (`python-docx`)**: Mengekstrak struktur paragraf sesuai level Heading (H1, H2, H3), memformat tabel dokumen, dan mengekstrak gambar tertanam dari relasi berkas ZIP XML.
+- **PPTX (`python-pptx`)**: Mengiterasi setiap slide presentasi, memisahkan kotak teks, tabel matriks per slide, serta gambar visual.
+- **XLSX (`openpyxl`)**: Membaca lembar kerja per sheet, memfilter baris kosong tak terpakai, dan menyusunnya ke dalam Markdown tabel per sheet.
+
+---
+
+### 7. Konfigurasi Lingkungan (`.env`)
+| Variabel | Default | Deskripsi |
+| :--- | :--- | :--- |
+| `PORT` | `8080` | Port listening web server FastAPI & UI. |
+| `MAX_UPLOAD_SIZE_MB` | `32` | Batas maksimum ukuran berkas upload. |
+| `ENABLE_AI_VISION` | `true` | Aktifkan/nonaktifkan analisis visual diagram teknis. |
+| `AZURE_VISION_ENDPOINT`| - | Endpoint Azure Computer Vision / AI Services. |
+| `AZURE_VISION_KEY` | - | API Key Azure AI Vision. |
+| `AZURE_DOC_ENDPOINT` | *(sama dgn vision)* | Endpoint Azure Document Intelligence (Layout Model). |
+| `AZURE_DOC_KEY` | *(sama dgn vision)* | API Key Azure Document Intelligence. |
+| `VISION_TIMEOUT_SEC` | `15` | Timeout request ke Azure Vision. |
 
 ---
 
@@ -45,198 +128,196 @@ Dilengkapi dengan **REST API** (mendukung binary & multipart upload) dan **Moder
 
 ```
 convert2text/
-├── cmd/
-│   └── server/
-│       └── main.go               # Server entrypoint & graceful shutdown
-├── internal/
-│   ├── assets/
-│   │   └── store.go              # Image asset cache & storage with eviction
-│   ├── config/
-│   │   └── config.go             # Environment configuration (Port, limits, concurrency)
-│   ├── extractor/
-│   │   ├── extractor.go          # Interface, Magic Bytes detector, CountingLimitReader, DRY helpers
-│   │   ├── docx.go               # Word (.docx) XML & media extractor
-│   │   ├── pptx.go               # PowerPoint (.pptx) XML & media extractor
-│   │   ├── excel.go              # Excel (.xlsx) row streaming & media extractor
-│   │   ├── pdf.go                # PDF layout, table & image extractor
-│   │   └── extractor_test.go     # Unit & integration tests
-│   ├── middleware/
-│   │   ├── security.go           # Security headers, CORS, MaxBytesReader
-│   │   └── limiter.go            # Concurrency semaphore worker limiter
-│   ├── handler/
-│   │   ├── api.go                # REST API extraction & asset endpoints
-│   │   ├── health.go             # Compute, Goroutine, & Memory metrics endpoint
-│   │   ├── response.go           # Standard JSON response helpers
-│   │   └── api_test.go           # Handler tests
-│   └── web/
-│       ├── embed.go              # Single binary embed.FS
-│       └── static/
-│           ├── index.html        # Web UI with Image Gallery
-│           ├── style.css         # Modern glassmorphism styles
-│           └── app.js            # Frontend logic
-├── Dockerfile                    # Multi-stage production container
-├── go.mod
-└── go.sum
+├── app/
+│   ├── __init__.py
+│   ├── config.py             # Pengaturan environment (.env)
+│   ├── models.py             # Data models (ExtractionResult, ExtractedImage, VisionAnalysis)
+│   ├── assets.py             # Storage memory & hash untuk aset gambar
+│   ├── vision.py             # Azure AI Vision client & filter
+│   ├── main.py               # FastAPI application & CLI dispatcher
+│   └── extractors/
+│       ├── base.py           # BaseExtractor & table/image markdown formatters
+│       ├── pdf_local.py      # Local PDF parser (pdfplumber + pymupdf)
+│       ├── pdf_cloud.py      # Cloud PDF parser (Azure Document Intelligence)
+│       ├── docx_extractor.py # Word (.docx) parser
+│       ├── pptx_extractor.py # PowerPoint (.pptx) parser
+│       └── xlsx_extractor.py # Excel (.xlsx) parser
+├── static/                   # Frontend Web UI (HTML, CSS, JS)
+├── ARCHIVE/                  # Arsip kode legacy Golang (cmd/, internal/, go.mod, go.sum)
+├── .env                      # Kredensial & konfigurasi lokal
+├── .env.example              # Template konfigurasi environment
+├── requirements.txt          # Dependensi Python
+├── Dockerfile                # Dockerfile container Python 3.12-slim
+└── hasil.md                  # Contoh hasil ekstraksi Markdown
 ```
 
 ---
 
-## 🚀 Menjalankan Aplikasi
+## 🚀 Panduan Memulai
 
-### 1. Jalankan Langsung dengan Go
+### 1. Setup Virtual Environment
 ```bash
-go run ./cmd/server/main.go
-```
-Buka browser Anda di `http://localhost:8080` untuk mengakses Web Interface.
+# Buat virtual environment
+/usr/local/bin/virtualenv -p /usr/local/bin/python3 .venv
 
-### 2. Build Binary Mandiri (Single Binary)
-```bash
-go build -ldflags="-s -w" -o convert2text ./cmd/server/main.go
-./convert2text
+# Install dependensi
+.venv/bin/pip install -r requirements.txt
 ```
 
-### 3. Menggunakan Docker
+### 2. Jalankan Ekstraksi via CLI
 ```bash
-docker build -t convert2text .
-docker run -p 8080:8080 convert2text
+# Mode Local (Rp 0 Cost - Default)
+.venv/bin/python -m app.main "document.pdf" output.md --engine=local
+
+# Mode Cloud Precision (Azure Document Intelligence)
+.venv/bin/python -m app.main "document.pdf" output.md --engine=cloud
 ```
+
+### 3. Jalankan Web UI & REST Server
+```bash
+.venv/bin/python -m app.main --serve --port 8080
+# atau
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+Buka browser di: **http://localhost:8080**
 
 ---
 
 ## 📡 REST API Reference
 
-### 1. `POST /api/v1/extract` (Respon JSON)
-Mengekstrak file dan mengembalikan dokumen teks/markdown bersama metadata dan statistik.
+Dokumentasi lengkap format request dan response untuk integrasi API:
 
-#### Request (Multipart Form Data):
+---
+
+### 1. `POST /api/v1/extract`
+Endpoint utama untuk mengunggah dokumen dan menerima respons JSON terstruktur lengkap dengan konten Markdown, statistik ekstraksi, daftar aset gambar, dan analisis AI Vision.
+
+#### Request
+- **Method**: `POST`
+- **Content-Type**: `multipart/form-data`
+- **Parameters (Form Data)**:
+  - `file` *(wajib)*: Berkas dokumen biner (`.pdf`, `.docx`, `.xlsx`, `.pptx`).
+  - `engine` *(opsional)*: Pilihan engine:
+    - `"local"` *(default)*: Parsing 100% lokal, cepat (~1.6s), Rp 0 token/API cost.
+    - `"cloud"`: Azure Document Intelligence Layout Model.
+  - `format` *(opsional)*: Format keluaran (`"markdown"` default, atau `"text"`).
+  - `ai_vision` *(opsional)*: `"true"` atau `"false"` untuk mengaktifkan AI Vision pada diagram teknis.
+
+#### Contoh Request (cURL)
 ```bash
 curl -X POST "http://localhost:8080/api/v1/extract" \
-  -F "file=@document.docx" \
-  -F "format=markdown"
+  -F "file=@2025 KAK Pengadaan Solusi AWS DRS_SF.pdf" \
+  -F "engine=local" \
+  -F "format=markdown" \
+  -F "ai_vision=true"
 ```
 
-#### Request (Direct Binary Payload):
-```bash
-curl -X POST "http://localhost:8080/api/v1/extract?format=markdown&filename=report.xlsx" \
-  --data-binary @report.xlsx
-```
-
-#### Contoh Response:
+#### Response Sukses (`200 OK`)
 ```json
 {
   "success": true,
   "data": {
-    "filename": "document.docx",
-    "detected_type": "docx",
+    "content": "# Kerangka Acuan Kerja\n\n| No | Server | Operating System | ...\n|---|---|---|...\n| 1 | Server01 | Windows | ...",
     "output_format": "markdown",
-    "content": "# Project Title\n\nIsi dokumen yang diekstrak...\n",
-    "word_count": 420,
-    "duration_ms": 14,
+    "duration_ms": 1644,
+    "word_count": 3345,
+    "detected_type": "pdf",
+    "engine": "local",
+    "images": [
+      {
+        "id": "e3b0c44298fc1c149afbf4c8",
+        "filename": "document.pdf_p2_img_1.jpeg",
+        "content_type": "image/jpeg",
+        "size_bytes": 48210,
+        "width": 850,
+        "height": 520,
+        "alt_text": "Diagram / Figure on Page 2",
+        "location": "Page 2",
+        "relative_path": "./assets/document.pdf_p2_img_1.jpeg",
+        "url": "/api/v1/assets/e3b0c44298fc1c149afbf4c8.jpeg",
+        "vision_analysis": {
+          "summary": "Diagram arsitektur solusi replikasi AWS DRS dari On-Premise ke VPC AWS Cloud.",
+          "tags": ["cloud computing", "software architecture", "amazon web services", "diagram"],
+          "objects": ["server", "database", "cloud"],
+          "extracted_text": ["AWS Elastic Disaster Recovery", "On-Premises Data Center", "AWS Region Jakarta", "VPC", "Replication Server"]
+        }
+      }
+    ],
     "metadata": {
-      "file_format": "docx"
+      "filename": "2025 KAK Pengadaan Solusi AWS DRS_SF.pdf",
+      "total_pages": 10,
+      "engine": "local",
+      "ai_vision_analyzed": 1
     }
   }
 }
 ```
 
----
+#### Penjelasan Field Response
+| Field | Tipe | Deskripsi |
+| :--- | :--- | :--- |
+| `success` | `boolean` | Status keberhasilan (`true` jika berhasil, `false` jika gagal). |
+| `data.content` | `string` | Teks hasil ekstraksi dalam format Markdown atau Plain Text siap konsumsi LLM. |
+| `data.output_format` | `string` | Format output yang dihasilkan (`"markdown"` atau `"text"`). |
+| `data.duration_ms` | `integer` | Waktu pemrosesan dokumen di server (dalam milidetik). |
+| `data.word_count` | `integer` | Jumlah kata yang berhasil diekstrak. |
+| `data.detected_type` | `string` | Tipe file yang terdeteksi (`"pdf"`, `"docx"`, `"xlsx"`, `"pptx"`). |
+| `data.engine` | `string` | Engine yang memproses dokumen (`"local"` atau `"cloud"`). |
+| `data.images` | `array` | Daftar objek gambar/diagram teknis yang diekstrak dari dokumen. |
+| `images[].url` | `string` | Endpoint URL lokal untuk mengakses file gambar (`/api/v1/assets/...`). |
+| `images[].vision_analysis` | `object` | Hasil analisis Azure Vision AI (bila gambar berupa diagram arsitektur). |
+| `vision_analysis.summary` | `string` | Penjelasan ringkas isi diagram teknis. |
+| `vision_analysis.tags` | `array` | Entitas & teknologi yang teridentifikasi di diagram. |
+| `vision_analysis.extracted_text`| `array` | Teks OCR yang tertulis di dalam diagram arsitektur. |
+| `data.metadata` | `object` | Informasi halaman, nama file, dan jumlah gambar yang dianalisis. |
 
-### 2. `POST /api/v1/extract/raw` (Direct Stream Raw)
-Mengekstrak file dan langsung menghasilkan isi plain text / markdown dengan header `Content-Type: text/markdown` atau `text/plain`.
-
-```bash
-# Simpan hasil ekstraksi langsung ke file
-curl -X POST "http://localhost:8080/api/v1/extract/raw" \
-  -F "file=@financials.xlsx" \
-  -F "format=markdown" > financials.md
-```
-
----
-
-### 3. `POST /api/v1/extract/bundle` (Download ZIP Asset Bundle)
-Mengekstrak file dan langsung mengembalikan **file `.zip`** (`Content-Type: application/zip`) yang berisi:
-- Dokumen Markdown (`document.md`) dengan path gambar relatif: `![Alt](./assets/image.png)`.
-- Folder `assets/` berisi seluruh gambar/diagram biner yang diekstrak.
-
-**Tanpa perlu Base64!** Aplikasi client atau script Linux Anda dapat langsung mengunduh dan mengekstraknya secara instan:
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/extract/bundle" \
-  -F "file=@devops_tools.pdf" \
-  -F "format=markdown" -o devops_tools.zip
-
-# Unzip dan buka di VS Code / Obsidian / Viewer offline
-unzip devops_tools.zip -d devops_tools/
-```
-
----
-
-### 4. `GET /api/v1/assets/{id}` (On-Demand Image Fetch)
-Mengambil file gambar biner yang diekstrak berdasarkan URL atau ID referensi yang ada pada tag placeholder markdown (`[IMAGE: ...]`).
-Sangat ideal untuk pola **Lazy Loading AI Agent**: AI Agent hanya memanggil endpoint ini ketika benar-benar perlu menginspeksi diagram tertentu secara visual!
-
-```bash
-curl http://localhost:8080/api/v1/assets/a1b2c3d4e5f6.png --output diagram.png
-```
-
----
-
-### 4. `GET /api/v1/health` (Monitoring Compute & Memory)
-Menampilkan utilisasi komputasi, CPU goroutines, memori, dan worker semaphore aktif.
-
-```bash
-curl http://localhost:8080/api/v1/health
-```
-
-#### Contoh Response:
+#### Response Error (`400 / 500`)
 ```json
 {
-  "success": true,
-  "data": {
-    "status": "healthy",
-    "uptime": "12m34s",
-    "compute": {
-      "num_cpu": 8,
-      "num_goroutines": 12,
-      "active_workers": 0,
-      "max_workers": 16
-    },
-    "memory": {
-      "alloc_mb": 14,
-      "total_alloc_mb": 42,
-      "sys_mb": 32,
-      "num_gc": 3
-    }
-  }
+  "success": false,
+  "error": "Uploaded file is empty or unsupported format"
 }
 ```
 
 ---
 
-## ⚙️ Konfigurasi Environment Variables
+### 2. `POST /api/v1/extract/raw`
+Endpoint ringan yang langsung mengembalikan konten teks mentah (`text/markdown` atau `text/plain`) tanpa pembungkus JSON. Sangat cocok untuk CLI pipe (`|`) atau automasi shell script.
 
-| Variable | Default | Deskripsi |
-|---|---|---|
-| `PORT` | `8080` | Port HTTP server |
-| `MAX_UPLOAD_SIZE_MB` | `32` | Batas maksimum ukuran file yang diupload (MB) |
-| `MAX_CONCURRENT_EXTRACTIONS` | `CPU*2` | Batas serentak worker komputasi ekstraksi |
-| `MAX_DECOMPRESSED_SIZE_MB` | `150` | Batas proteksi Decompression Bomb (Zip Bomb) |
-| `EXTRACTION_TIMEOUT_SEC` | `60` | Batas timeout per request ekstraksi (detik) |
-| `ENABLE_AI_VISION` | `true` | Mengaktifkan/menonaktifkan analisis Azure AI Vision |
-| `AZURE_VISION_ENDPOINT` | *(Configured)* | Endpoint Azure AI Services / Computer Vision |
-| `AZURE_VISION_KEY` | *(Configured)* | API Key Azure Computer Vision |
-| `VISION_CONCURRENCY` | `4` | Worker pool paralel untuk analisis gambar |
-| `VISION_TIMEOUT_SEC` | `15` | Timeout per panggilan API Vision |
+#### Request
+- **Method**: `POST`
+- **Query Parameter**: `engine=local` *(default)* atau `engine=cloud`
+- **Content-Type**: `multipart/form-data` (file pada key `file`)
+
+#### Contoh Request (cURL)
+```bash
+curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=local" \
+  -F "file=@2025 KAK Pengadaan Solusi AWS DRS_SF.pdf" \
+  -o output.md
+```
 
 ---
 
-## 🧪 Menjalankan Pengujian (Tests)
+### 3. `GET /api/v1/assets/{filename}`
+Mengunduh atau menampilkan gambar yang diekstrak dari dokumen.
 
-```bash
-go test -v ./...
+#### Request
+- **Method**: `GET`
+- **Response**: Binary data gambar (`image/png`, `image/jpeg`, dsb.).
+
+---
+
+### 4. `GET /api/v1/health`
+Mengecek status kesehatan server dan ketersediaan engine.
+
+#### Response (`200 OK`)
+```json
+{
+  "status": "ok",
+  "version": "2.0.0",
+  "engines": ["local", "cloud"],
+  "azure_vision_configured": true,
+  "azure_cloud_configured": true
+}
 ```
-Semua test menguji:
-- Ekstraksi format DOCX, PPTX, XLSX
-- Proteksi Zip Bomb / dekompresi ekstrem
-- Sanitasi nama file & path traversal prevention
-- Endpoint REST API (Multipart, Binary Stream, Error handling)
+

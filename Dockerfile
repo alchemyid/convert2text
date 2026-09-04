@@ -1,40 +1,26 @@
-# Multi-stage build for minimal image size & optimal compute/memory efficiency
-FROM golang:1.24-alpine AS builder
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache git
+# Install system dependencies if required
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Download Go modules
-COPY go.mod go.sum ./
-RUN go mod download
+# Install Python requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY . .
+# Copy application files
+COPY app/ app/
+COPY static/ static/
+COPY .env.example .env
 
-# Build statically linked binary with optimization flags
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o convert2text ./cmd/server/main.go
-
-# Production stage - scratch or minimal alpine
-FROM alpine:3.21
-
-WORKDIR /app
-
-# Add unprivileged user for security
-RUN adduser -D -u 1000 appuser && \
-    apk --no-cache add ca-certificates tzdata
-
-COPY --from=builder /app/convert2text /app/convert2text
-
-USER appuser
-
+# Expose port
 EXPOSE 8080
 
 ENV PORT=8080 \
-    MAX_UPLOAD_SIZE_MB=32 \
-    MAX_CONCURRENT_EXTRACTIONS=8 \
-    MAX_DECOMPRESSED_SIZE_MB=150 \
-    EXTRACTION_TIMEOUT_SEC=60
+    PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["/app/convert2text"]
+CMD ["python", "-m", "app.main", "--serve", "--port", "8080"]

@@ -50,8 +50,20 @@
           <p>Mendukung format <strong>PDF</strong>, Word (<strong>DOCX</strong>), Excel (<strong>XLSX</strong>), dan PowerPoint (<strong>PPTX</strong>).</p>
         </div>
 
-        <!-- Format & Vision Selector Options -->
+        <!-- Format & Engine & Vision Selector Options -->
         <div class="options-bar">
+          <div class="option-group">
+            <label class="option-label">Engine Ekstraksi:</label>
+            <div class="toggle-group">
+              <button type="button" class="toggle-btn active" id="btn-engine-local" data-engine="local" title="100% Parsing Lokal - Cepat (1.6s), Rp 0 Biaya Token / API, Aman & Privat">
+                ⚡ Local (Rp 0 Cost)
+              </button>
+              <button type="button" class="toggle-btn" id="btn-engine-cloud" data-engine="cloud" title="Azure Document Intelligence prebuilt-layout model untuk dokumen scan / multi-matrix kompleks">
+                ☁️ Cloud Precision (Azure)
+              </button>
+            </div>
+          </div>
+
           <div class="option-group">
             <label class="option-label">Format Output:</label>
             <div class="toggle-group">

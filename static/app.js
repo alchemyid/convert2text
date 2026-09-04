@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   let selectedFile = null;
   let currentFormat = 'markdown';
+  let currentEngine = 'local';
   let currentExtractedData = null;
 
   // DOM Elements
@@ -16,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const convertSpinner = document.getElementById('convert-spinner');
   const btnFmtMarkdown = document.getElementById('btn-fmt-markdown');
   const btnFmtText = document.getElementById('btn-fmt-text');
+  const btnEngineLocal = document.getElementById('btn-engine-local');
+  const btnEngineCloud = document.getElementById('btn-engine-cloud');
   const errorBanner = document.getElementById('error-banner');
 
   // Result Elements
@@ -56,6 +59,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (visionBtnText) visionBtnText.textContent = 'AI Vision: Nonaktif';
       }
     });
+  }
+
+  // Engine Switchers
+  if (btnEngineLocal) btnEngineLocal.addEventListener('click', () => setEngine('local'));
+  if (btnEngineCloud) btnEngineCloud.addEventListener('click', () => setEngine('cloud'));
+
+  function setEngine(eng) {
+    currentEngine = eng;
+    if (eng === 'local') {
+      if (btnEngineLocal) btnEngineLocal.classList.add('active');
+      if (btnEngineCloud) btnEngineCloud.classList.remove('active');
+    } else {
+      if (btnEngineCloud) btnEngineCloud.classList.add('active');
+      if (btnEngineLocal) btnEngineLocal.classList.remove('active');
+    }
   }
 
   // Format Switchers
@@ -174,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('format', currentFormat);
+    formData.append('engine', currentEngine);
     formData.append('ai_vision', enableAIVision ? 'true' : 'false');
 
     try {

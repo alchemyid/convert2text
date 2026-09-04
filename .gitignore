@@ -34,3 +34,12 @@ convert2text
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+assets/
