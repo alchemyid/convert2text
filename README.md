@@ -173,13 +173,33 @@ convert2text/
 .venv/bin/python -m app.main "document.pdf" output.md --engine=cloud
 ```
 
-### 3. Jalankan Web UI & REST Server
+### 3. Jalankan Web UI & REST Server Secara Lokal
 ```bash
 .venv/bin/python -m app.main --serve --port 8080
 # atau
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 Buka browser di: **http://localhost:8080**
+
+### 4. Deploy Production dengan Docker Compose (Nginx + Python Backend)
+Aplikasi telah dilengkapi konfigurasi **Docker Compose** dan reverse proxy **Nginx** untuk menangani domain kustom, SSL, buffer berkas besar (hingga 64 MB), dan timeout ekstraksi panjang:
+
+```bash
+# Build dan jalankan seluruh container (app & nginx)
+docker compose up -d --build
+
+# Periksa status container
+docker compose ps
+
+# Melihat log aplikasi
+docker compose logs -f app
+```
+
+- **Akses Domain / Host**: Nginx me-listen di port `80` (dan `443`). Buka browser di `http://your-domain.com` atau `http://localhost`.
+- **Konfigurasi Domain**: Edit `nginx/conf.d/default.conf` dan ubah `server_name` sesuai domain Anda.
+- **Konfigurasi SSL/HTTPS**:
+  1. Letakkan sertifikat SSL (`fullchain.pem` dan `privkey.pem`) di dalam folder `nginx/ssl/`.
+  2. Gunakan template `nginx/conf.d/default-ssl.conf.example` sebagai panduan konfigurasi HTTPS siap pakai.
 
 ---
 
