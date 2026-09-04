@@ -121,6 +121,36 @@ Untuk skenario khusus:
 | `AZURE_DOC_ENDPOINT` | *(sama dgn vision)* | Endpoint Azure Document Intelligence (Layout Model). |
 | `AZURE_DOC_KEY` | *(sama dgn vision)* | API Key Azure Document Intelligence. |
 | `VISION_TIMEOUT_SEC` | `15` | Timeout request ke Azure Vision. |
+| `API_BEARER_TOKEN` | - | Static Barrier Token untuk proteksi endpoint API (`Authorization: Bearer <token>`). |
+
+---
+
+### 8. Keamanan & Proteksi Akses (Static Barrier Header & htpasswd)
+Untuk melindungi layanan dari akses tidak sah saat dideploy ke publik:
+
+#### A. Proteksi REST API (Static Barrier Header)
+- Dikonfigurasi melalui variabel `API_BEARER_TOKEN` di file `.env`.
+- Setiap panggilan ke endpoint `/api/v1/extract` dan `/api/v1/extract/raw` **wajib** menyertakan salah satu header berikut:
+  - `Authorization: Bearer <API_BEARER_TOKEN>`
+  - atau `X-API-Key: <API_BEARER_TOKEN>`
+- Request tanpa header atau dengan token yang salah akan otomatis ditolak dengan status **`401 Unauthorized`**.
+
+#### B. Proteksi Website (Nginx htpasswd / HTTP Basic Auth)
+- Halaman web dan UI drag-and-drop dilindungi menggunakan **HTTP Basic Auth** (`htpasswd`) di level reverse proxy Nginx.
+- Saat pertama kali membuka website di browser, pengguna akan diminta memasukkan username & password.
+- **Kredensial Default**:
+  - **Username**: `admin`
+  - **Password**: `adminpassword123`
+  *(File kredensial tersimpan di `nginx/.htpasswd`)*
+- **Cara Mengganti Password / Menambah User**:
+  Gunakan perintah Python berikut untuk menambahkan user/password baru ke `nginx/.htpasswd`:
+  ```bash
+  python3 -c "import hashlib, base64; print('admin:{SHA}' + base64.b64encode(hashlib.sha1(b'password_baru_anda').digest()).decode())" > nginx/.htpasswd
+  ```
+  Lalu reload Nginx:
+  ```bash
+  docker compose exec nginx nginx -s reload
+  ```
 
 ---
 
@@ -226,6 +256,7 @@ Endpoint utama untuk mengunggah dokumen dan menerima respons JSON terstruktur le
 #### Contoh Request (cURL)
 ```bash
 curl -X POST "http://localhost:8080/api/v1/extract" \
+  -H "Authorization: Bearer <API_BEARER_TOKEN>" \
   -F "file=@2025 KAK Pengadaan Solusi AWS DRS_SF.pdf" \
   -F "engine=local" \
   -F "format=markdown" \
@@ -312,6 +343,7 @@ Endpoint ringan yang langsung mengembalikan konten teks mentah (`text/markdown` 
 #### Contoh Request (cURL)
 ```bash
 curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=local" \
+  -H "Authorization: Bearer <API_BEARER_TOKEN>" \
   -F "file=@2025 KAK Pengadaan Solusi AWS DRS_SF.pdf" \
   -o output.md
 ```

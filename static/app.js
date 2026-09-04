@@ -45,8 +45,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const dlExt = document.getElementById('dl-ext');
   const btnToggleVision = document.getElementById('btn-toggle-vision');
   const visionBtnText = document.getElementById('vision-btn-text');
+  const inputApiToken = document.getElementById('input-api-token');
 
   let enableAIVision = true;
+
+  if (inputApiToken) {
+    const savedToken = localStorage.getItem('c2t_api_token');
+    if (savedToken) {
+      inputApiToken.value = savedToken;
+    }
+    inputApiToken.addEventListener('input', () => {
+      localStorage.setItem('c2t_api_token', inputApiToken.value.trim());
+    });
+  }
 
   if (btnToggleVision) {
     btnToggleVision.addEventListener('click', () => {
@@ -195,9 +206,16 @@ document.addEventListener('DOMContentLoaded', () => {
     formData.append('engine', currentEngine);
     formData.append('ai_vision', enableAIVision ? 'true' : 'false');
 
+    const headers = {};
+    const apiToken = (inputApiToken && inputApiToken.value.trim()) || localStorage.getItem('c2t_api_token');
+    if (apiToken) {
+      headers['Authorization'] = `Bearer ${apiToken}`;
+    }
+
     try {
       const response = await fetch('/api/v1/extract', {
         method: 'POST',
+        headers: headers,
         body: formData,
       });
 

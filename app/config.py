@@ -22,4 +22,7 @@ class Settings:
     azure_doc_endpoint: str = os.getenv("AZURE_DOC_ENDPOINT", os.getenv("AZURE_VISION_ENDPOINT", "")).rstrip("/")
     azure_doc_key: str = os.getenv("AZURE_DOC_KEY", os.getenv("AZURE_VISION_KEY", ""))
 
+    # Static Barrier Header / API Bearer Token Protection
+    api_bearer_token: str = os.getenv("API_BEARER_TOKEN", os.getenv("API_KEY", "")).strip()
+
 settings = Settings()

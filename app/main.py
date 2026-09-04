@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +27,39 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("convert2text")
+
+
+def verify_api_token(
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
+    """
+    Validates static barrier token from .env (API_BEARER_TOKEN).
+    Accepts either:
+      - Header 'Authorization: Bearer <token>'
+      - Header 'X-API-Key: <token>'
+    If API_BEARER_TOKEN is not configured in .env, requests are permitted.
+    """
+    if not settings.api_bearer_token:
+        return True
+
+    provided_token = None
+    if authorization:
+        parts = authorization.strip().split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            provided_token = parts[1]
+        else:
+            provided_token = authorization.strip()
+    elif x_api_key:
+        provided_token = x_api_key.strip()
+
+    if not provided_token or provided_token != settings.api_bearer_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Invalid or missing API barrier token. Provide 'Authorization: Bearer <token>' or 'X-API-Key: <token>' header.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return True
 
 # Initialize extractors
 pdf_local_extractor = PDFLocalExtractor()
@@ -91,6 +124,7 @@ async def health_check():
         "engines": ["local", "cloud"],
         "azure_vision_configured": vision_client.enabled if vision_client else False,
         "azure_cloud_configured": pdf_cloud_extractor.is_configured(),
+        "api_barrier_protection": bool(settings.api_bearer_token),
     }
 
 
@@ -108,6 +142,7 @@ async def api_extract(
     engine: str = Form("local"),
     format: Optional[str] = Form("markdown"),
     ai_vision: Optional[str] = Form(None),
+    _auth: bool = Depends(verify_api_token),
 ):
     start_time = time.time()
     try:
@@ -180,6 +215,7 @@ async def api_extract(
 async def api_extract_raw(
     file: UploadFile = File(...),
     engine: str = Query("local"),
+    _auth: bool = Depends(verify_api_token),
 ):
     content = await file.read()
     if not content:
