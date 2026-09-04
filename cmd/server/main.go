@@ -8,17 +8,64 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"convert2text/internal/config"
+	"convert2text/internal/extractor"
 	"convert2text/internal/handler"
 	"convert2text/internal/middleware"
+	"convert2text/internal/vision"
 	"convert2text/internal/web"
 )
 
 func main() {
 	cfg := config.Load()
+
+	// CLI Extraction Mode: ./convert2text <filename> [optional_output.md]
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		filePath := os.Args[1]
+		f, err := os.Open(filePath)
+		if err != nil {
+			log.Fatalf("Failed to open file: %v", err)
+		}
+		defer f.Close()
+
+		fi, err := f.Stat()
+		if err != nil {
+			log.Fatalf("Failed to stat file: %v", err)
+		}
+
+		var visionAnalyzer vision.Analyzer
+		if cfg.EnableAIVision && cfg.AzureVisionEndpoint != "" && cfg.AzureVisionKey != "" {
+			visionAnalyzer = vision.NewClient(cfg.AzureVisionEndpoint, cfg.AzureVisionKey, cfg.VisionTimeout, cfg.VisionConcurrency)
+		}
+
+		opts := extractor.Options{
+			Format:               extractor.FormatMarkdown,
+			MaxDecompressedBytes: cfg.MaxDecompressedSizeBytes,
+			ExtractImages:        true,
+			VisionAnalyzer:       visionAnalyzer,
+			EnableVision:         cfg.EnableAIVision,
+		}
+
+		res, err := extractor.ExecuteExtraction(context.Background(), f, fi.Size(), fi.Name(), opts)
+		if err != nil {
+			log.Fatalf("Extraction error: %v", err)
+		}
+
+		if len(os.Args) > 2 {
+			outPath := os.Args[2]
+			if err := os.WriteFile(outPath, []byte(res.Content), 0644); err != nil {
+				log.Fatalf("Failed to write output file: %v", err)
+			}
+			log.Printf("Extraction complete -> %s (%d words, %d images)", outPath, res.WordCount, len(res.Images))
+		} else {
+			fmt.Print(res.Content)
+		}
+		return
+	}
 
 	// Initialize Concurrency Limiter for Compute Optimization
 	limiter := middleware.NewConcurrencyLimiter(cfg.MaxConcurrentExtractions)

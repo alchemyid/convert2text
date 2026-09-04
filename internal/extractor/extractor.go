@@ -50,6 +50,8 @@ type ExtractedImage struct {
 	Filename       string                 `json:"filename"`
 	ContentType    string                 `json:"content_type"`
 	SizeBytes      int64                  `json:"size_bytes"`
+	Width          int                    `json:"width,omitempty"`
+	Height         int                    `json:"height,omitempty"`
 	AltText        string                 `json:"alt_text,omitempty"`
 	Location       string                 `json:"location,omitempty"`
 	RelativePath   string                 `json:"relative_path,omitempty"`
@@ -269,6 +271,40 @@ func ExecuteExtraction(ctx context.Context, r io.ReaderAt, size int64, filename 
 	return result, nil
 }
 
+// IsVisionCandidate evaluates whether an extracted image should be sent to Vision AI.
+// It prevents unnecessary API calls and token waste by skipping:
+// 1. First-page / cover-page images (Page 1, Slide 1, Cover) which usually only contain corporate logos, title headers, or stationery.
+// 2. Tiny icon-sized images (< 1500 bytes).
+// 3. Small resolution icons / stamps (width < 150 px or height < 120 px).
+// 4. Extreme horizontal banners or vertical divider rules (aspect ratio > 3.5 or < 0.28).
+func IsVisionCandidate(img ExtractedImage) bool {
+	loc := strings.ToLower(strings.TrimSpace(img.Location))
+	if loc != "" {
+		// Filter out Page 1, Slide 1, or Cover pages
+		if strings.Contains(loc, "page 1") || strings.Contains(loc, "slide 1") || strings.Contains(loc, "cover") {
+			return false
+		}
+	}
+
+	// Filter out tiny files (e.g. 1x1 tracking pixels, tiny bullet icons)
+	if img.SizeBytes > 0 && img.SizeBytes < 1500 {
+		return false
+	}
+
+	// Filter out small icons or extreme banner / divider strips if dimensions are known
+	if img.Width > 0 && img.Height > 0 {
+		if img.Width < 150 || img.Height < 120 {
+			return false
+		}
+		aspect := float64(img.Width) / float64(img.Height)
+		if aspect > 3.5 || aspect < 0.28 {
+			return false
+		}
+	}
+
+	return true
+}
+
 // EnrichResultWithVision processes extracted images using Vision AI and updates document content and image metadata.
 func EnrichResultWithVision(ctx context.Context, result *Result, analyzer vision.Analyzer, format OutputFormat) {
 	if analyzer == nil || !analyzer.IsEnabled() || len(result.Images) == 0 {
@@ -279,6 +315,9 @@ func EnrichResultWithVision(ctx context.Context, result *Result, analyzer vision
 	store := assets.GetDefaultStore()
 
 	for _, img := range result.Images {
+		if !IsVisionCandidate(img) {
+			continue
+		}
 		data := img.Data
 		if len(data) == 0 {
 			if item, exists := store.Get(img.ID); exists {

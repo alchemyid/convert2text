@@ -282,6 +282,149 @@ func TestDevopsToolsPDFExtraction(t *testing.T) {
 	}
 }
 
+func TestAWSDRSPDFExtraction(t *testing.T) {
+	pdfPath := "../../2025 KAK Pengadaan Solusi AWS DRS_SF.pdf"
+	if _, err := os.Stat(pdfPath); os.IsNotExist(err) {
+		pdfPath = "2025 KAK Pengadaan Solusi AWS DRS_SF.pdf"
+	}
+	f, err := os.Open(pdfPath)
+	if err != nil {
+		t.Skipf("Skipping live PDF test, file not found: %v", err)
+		return
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatalf("Failed to stat PDF: %v", err)
+	}
+
+	opts := Options{
+		Format:        FormatMarkdown,
+		ExtractImages: true,
+	}
+
+	res, err := ExecuteExtraction(context.Background(), f, fi.Size(), fi.Name(), opts)
+	if err != nil {
+		t.Fatalf("Failed to extract AWS DRS PDF: %v", err)
+	}
+
+	if res.WordCount == 0 {
+		t.Errorf("Expected word count > 0, got 0")
+	}
+
+	if len(res.Images) == 0 {
+		t.Errorf("Expected extracted images from AWS DRS PDF, got 0")
+	}
+
+	// Verify that text is cleanly extracted in proper reading order, not scrambled into anagrams
+	expectedPhrases := []string{
+		"Kerangka Acuan Kerja",
+		"PT ANTAM Tbk",
+		"Daftar Isi",
+		"Pendahuluan",
+		"Latar Belakang",
+		"Maksud dan Tujuan",
+		"Lingkup Pekerjaan",
+	}
+	for _, phrase := range expectedPhrases {
+		if !strings.Contains(res.Content, phrase) {
+			t.Errorf("Expected clean text to contain %q, but was not found", phrase)
+		}
+	}
+
+	// Ensure scrambled words from previous bug do not exist
+	scrambledPhrases := []string{
+		"Kreangka cAuan ejaKr",
+		"nPuaendahul",
+		"aDaftrIi",
+	}
+	for _, scrambled := range scrambledPhrases {
+		if strings.Contains(res.Content, scrambled) {
+			t.Errorf("Found corrupted scrambled text %q in output", scrambled)
+		}
+	}
+
+	t.Logf("AWS DRS PDF Extracted successfully: %d words, %d images", res.WordCount, len(res.Images))
+}
+
+func TestVisionCandidateFilter(t *testing.T) {
+	tests := []struct {
+		name     string
+		img      ExtractedImage
+		expected bool
+	}{
+		{
+			name: "page 1 logo",
+			img: ExtractedImage{
+				Location:  "Page 1",
+				SizeBytes: 50000,
+				Width:     553,
+				Height:    107,
+			},
+			expected: false,
+		},
+		{
+			name: "slide 1 title logo",
+			img: ExtractedImage{
+				Location:  "Slide 1",
+				SizeBytes: 120000,
+				Width:     400,
+				Height:    300,
+			},
+			expected: false,
+		},
+		{
+			name: "tiny bullet icon",
+			img: ExtractedImage{
+				Location:  "Page 3",
+				SizeBytes: 800,
+			},
+			expected: false,
+		},
+		{
+			name: "banner strip extreme aspect ratio",
+			img: ExtractedImage{
+				Location:  "Page 2",
+				SizeBytes: 85000,
+				Width:     2549,
+				Height:    367,
+			},
+			expected: false,
+		},
+		{
+			name: "small icon stamp",
+			img: ExtractedImage{
+				Location:  "Page 3",
+				SizeBytes: 8000,
+				Width:     100,
+				Height:    80,
+			},
+			expected: false,
+		},
+		{
+			name: "legitimate solution architecture diagram",
+			img: ExtractedImage{
+				Location:  "Page 2",
+				SizeBytes: 141633,
+				Width:     954,
+				Height:    1268,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsVisionCandidate(tt.img)
+			if got != tt.expected {
+				t.Errorf("IsVisionCandidate(%s) = %v, want %v", tt.name, got, tt.expected)
+			}
+		})
+	}
+}
+
+
 func TestDOCXWithEmbeddedImage(t *testing.T) {
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
