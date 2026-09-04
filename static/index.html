@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Convert2Text - High-Performance Document Extraction</title>
-  <meta name="description" content="Ekstraksi dokumen PDF, DOCX, XLSX, dan PPTX menjadi Markdown dan Plain Text secara cepat dan aman dengan Go REST API dan Web UI.">
+  <title>Convert2Text - Python Dual-Engine Document Extractor</title>
+  <meta name="description" content="Ekstraksi dokumen RFP, PDF, DOCX, XLSX, dan PPTX menjadi Markdown presisi dengan opsi Local Engine (Rp 0) atau Cloud Precision (Azure Document Intelligence) & AI Vision.">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2.2.0">
 </head>
 <body>
   <div class="background-glow top-left"></div>
@@ -183,35 +186,151 @@
         </div>
       </section>
 
-      <!-- REST API Usage & cURL Snippet Section -->
+      <!-- REST API Usage & Parameter Guide Section -->
       <section class="card api-section" id="api-guide">
         <div class="api-header">
-          <h3>Integrasi REST API untuk Aplikasi & AI Agent</h3>
-          <p>Kirim file binary langsung dari backend atau script automasi Anda. Pilih <strong>Local Engine</strong> (Rp 0 token cost) atau <strong>Cloud Precision</strong> (Azure Document Intelligence) via parameter <code>engine</code>:</p>
+          <h3>Integrasi REST API & Panduan Parameter Engine</h3>
+          <p>Kirim file dokumen langsung dari backend, script automasi, atau AI Agent. Anda dapat memilih pemrosesan <strong>Local Engine</strong> (hemat Rp 0 biaya token) atau <strong>Cloud Precision</strong> (Azure Document Intelligence) via parameter <code>engine</code>.</p>
         </div>
 
-        <div class="code-snippets">
-          <div class="snippet-tab">
-            <span class="endpoint-badge post">POST</span>
-            <code>/api/v1/extract</code>
-            <span class="snippet-desc">Respon JSON terstruktur (konten, statistik, tabel, & analisis diagram AI Vision)</span>
+        <!-- 3 Comparison Cards: Local vs Cloud vs Vision -->
+        <div class="engine-cards-grid">
+          <div class="engine-card local-card">
+            <div class="engine-card-header">
+              <span class="engine-card-title">⚡ Local Engine</span>
+              <span class="engine-card-param">engine=local</span>
+            </div>
+            <div class="engine-card-badges">
+              <span class="engine-badge badge-green">Rp 0 Biaya Token</span>
+              <span class="engine-badge badge-green">~1.6 Detik</span>
+              <span class="engine-badge badge-green">100% Offline & Privat</span>
+            </div>
+            <p class="engine-card-desc">
+              <strong>Pilihan Default.</strong> Menggunakan <code>pdfplumber</code> (deteksi garis fisik sel) + <code>PyMuPDF</code> (decoding font langsung). Sangat akurat untuk 95% dokumen digital, tabel matriks server, KAK, dan RFP tanpa biaya API sama sekali.
+            </p>
           </div>
-          <pre class="code-block"><code id="curl-snippet-json">curl -X POST "http://localhost:8080/api/v1/extract" \
+
+          <div class="engine-card cloud-card">
+            <div class="engine-card-header">
+              <span class="engine-card-title">☁️ Cloud Precision</span>
+              <span class="engine-card-param">engine=cloud</span>
+            </div>
+            <div class="engine-card-badges">
+              <span class="engine-badge badge-indigo">Azure Doc Intelligence</span>
+              <span class="engine-badge badge-indigo">Layout Model</span>
+              <span class="engine-badge badge-indigo">Deep OCR</span>
+            </div>
+            <p class="engine-card-desc">
+              <strong>Opsi Presisi Ekstrem.</strong> Menggunakan Azure Document Intelligence (<code>prebuilt-layout</code>). Ideal untuk hasil scan scanner buram/miring, tulisan tangan, atau tabel dengan multi-level merged cells yang sangat rumit.
+            </p>
+          </div>
+
+          <div class="engine-card vision-card">
+            <div class="engine-card-header">
+              <span class="engine-card-title">🤖 AI Vision Diagram</span>
+              <span class="engine-card-param">ai_vision=true</span>
+            </div>
+            <div class="engine-card-badges">
+              <span class="engine-badge badge-amber">Azure AI Vision 4.0</span>
+              <span class="engine-badge badge-amber">Arsitektur & Topologi</span>
+              <span class="engine-badge badge-amber">Orthogonal (Lokal/Cloud)</span>
+            </div>
+            <p class="engine-card-desc">
+              <strong>Parameter Terpisah.</strong> Memotong setiap gambar arsitektur cloud / diagram topologi di dokumen, lalu meng-generate deskripsi teknis komponennya dan menginjeksinya langsung ke dalam teks Markdown.
+            </p>
+          </div>
+        </div>
+
+        <!-- Interactive Tabs for cURL examples -->
+        <div class="api-tabs-bar">
+          <div class="api-tabs-group">
+            <button class="api-tab-btn active" id="btn-tab-curl-local" data-target="local">
+              ⚡ 1. Local Engine (Default)
+            </button>
+            <button class="api-tab-btn" id="btn-tab-curl-cloud" data-target="cloud">
+              ☁️ 2. Cloud Precision (Azure)
+            </button>
+            <button class="api-tab-btn" id="btn-tab-curl-vision" data-target="vision">
+              🤖 3. Local + AI Vision
+            </button>
+            <button class="api-tab-btn" id="btn-tab-curl-raw" data-target="raw">
+              📄 4. Raw Output (.md)
+            </button>
+          </div>
+        </div>
+
+        <!-- Code Block Container with Copy Button -->
+        <div class="code-container">
+          <button class="code-copy-btn" id="btn-copy-curl" title="Salin Perintah cURL">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span id="copy-curl-text">Salin cURL</span>
+          </button>
+          <pre class="code-block"><code id="curl-display-code">curl -X POST "http://localhost:8080/api/v1/extract" \
   -H "Authorization: Bearer c2t_sec_98f8a17c33d83_convert2text_token" \
   -F "file=@document.pdf" \
   -F "engine=local" \
-  -F "format=markdown" \
-  -F "ai_vision=true"</code></pre>
+  -F "format=markdown"</code></pre>
+        </div>
+        <p class="api-snippet-note" id="curl-snippet-explanation">
+          💡 <strong>Mode Local:</strong> Memproses dokumen secara instan dan 100% gratis menggunakan algoritma Python lokal tanpa konsumsi token eksternal.
+        </p>
 
-          <div class="snippet-tab">
-            <span class="endpoint-badge post">POST</span>
-            <code>/api/v1/extract/raw</code>
-            <span class="snippet-desc">Respon langsung konten teks Markdown murni (ideal untuk CLI pipe atau output file langsung)</span>
-          </div>
-          <pre class="code-block"><code id="curl-snippet-raw">curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=local" \
-  -H "Authorization: Bearer c2t_sec_98f8a17c33d83_convert2text_token" \
-  -F "file=@document.pdf" \
-  -o output.md</code></pre>
+        <!-- Parameter Reference Table -->
+        <div class="api-param-title">
+          📋 Tabel Referensi Parameter API
+        </div>
+        <div class="api-table-wrapper">
+          <table class="api-param-table">
+            <thead>
+              <tr>
+                <th style="width: 18%;">Parameter</th>
+                <th style="width: 16%;">Tipe</th>
+                <th style="width: 22%;">Nilai Opsi</th>
+                <th style="width: 12%;">Default</th>
+                <th>Keterangan Fungsi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>file</code></td>
+                <td>Binary Form</td>
+                <td>PDF, DOCX, PPTX, XLSX</td>
+                <td><em>Wajib</em></td>
+                <td>File dokumen biner yang akan diproses dan diekstrak tabel & teksnya.</td>
+              </tr>
+              <tr>
+                <td><code>engine</code></td>
+                <td>String Form</td>
+                <td><code>local</code> | <code>cloud</code></td>
+                <td><code>local</code></td>
+                <td>
+                  <strong>local:</strong> Python parser lokal (Rp 0 cost, cepat ~1.6s).<br>
+                  <strong>cloud:</strong> Azure Document Intelligence Layout model (presisi tinggi untuk scan/tabel rumit).
+                </td>
+              </tr>
+              <tr>
+                <td><code>format</code></td>
+                <td>String Form</td>
+                <td><code>markdown</code> | <code>text</code></td>
+                <td><code>markdown</code></td>
+                <td>Format hasil ekstraksi. Markdown mempertahankan struktur tabel GitHub-flavored.</td>
+              </tr>
+              <tr>
+                <td><code>ai_vision</code></td>
+                <td>String Form</td>
+                <td><code>true</code> | <code>false</code></td>
+                <td><code>false</code></td>
+                <td>Jika <code>true</code>, diagram arsitektur/topologi dianalisis visual menggunakan Azure AI Vision 4.0.</td>
+              </tr>
+              <tr>
+                <td><code>Authorization</code></td>
+                <td>HTTP Header</td>
+                <td><code>Bearer &lt;token&gt;</code></td>
+                <td>-</td>
+                <td>Static Barrier Token proteksi API (dikonfigurasi via <code>API_BEARER_TOKEN</code> di <code>.env</code>). Bisa juga via header <code>X-API-Key</code>.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
     </main>
@@ -222,6 +341,6 @@
     </footer>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2.2.0"></script>
 </body>
 </html>

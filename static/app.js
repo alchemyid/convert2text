@@ -78,31 +78,90 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnEngineLocal) btnEngineLocal.addEventListener('click', () => setEngine('local'));
   if (btnEngineCloud) btnEngineCloud.addEventListener('click', () => setEngine('cloud'));
 
-  const curlSnippetJson = document.getElementById('curl-snippet-json');
-  const curlSnippetRaw = document.getElementById('curl-snippet-raw');
+  // API Guide interactive tabs
+  let activeApiTab = 'local';
+  const curlDisplayCode = document.getElementById('curl-display-code');
+  const curlSnippetExplanation = document.getElementById('curl-snippet-explanation');
+  const btnCopyCurl = document.getElementById('btn-copy-curl');
+  const copyCurlText = document.getElementById('copy-curl-text');
+
+  const apiTabs = [
+    { id: 'btn-tab-curl-local', target: 'local' },
+    { id: 'btn-tab-curl-cloud', target: 'cloud' },
+    { id: 'btn-tab-curl-vision', target: 'vision' },
+    { id: 'btn-tab-curl-raw', target: 'raw' }
+  ];
+
+  apiTabs.forEach(tab => {
+    const el = document.getElementById(tab.id);
+    if (el) {
+      el.addEventListener('click', () => {
+        activeApiTab = tab.target;
+        apiTabs.forEach(t => {
+          const btn = document.getElementById(t.id);
+          if (btn) btn.classList.toggle('active', t.target === activeApiTab);
+        });
+        updateCurlSnippets();
+      });
+    }
+  });
+
+  if (btnCopyCurl && curlDisplayCode) {
+    btnCopyCurl.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(curlDisplayCode.textContent);
+        if (copyCurlText) copyCurlText.textContent = 'Tersalin!';
+        setTimeout(() => {
+          if (copyCurlText) copyCurlText.textContent = 'Salin cURL';
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy curl:', err);
+      }
+    });
+  }
 
   function updateCurlSnippets() {
     const token = (inputApiToken && inputApiToken.value.trim()) || 'c2t_sec_98f8a17c33d83_convert2text_token';
     const filename = selectedFile ? selectedFile.name : 'document.pdf';
 
-    if (curlSnippetJson) {
-      let cmd = `curl -X POST "http://localhost:8080/api/v1/extract" \\\n`;
+    if (!curlDisplayCode) return;
+
+    let cmd = '';
+    let explanation = '';
+
+    if (activeApiTab === 'local') {
+      cmd = `curl -X POST "http://localhost:8080/api/v1/extract" \\\n`;
       cmd += `  -H "Authorization: Bearer ${token}" \\\n`;
       cmd += `  -F "file=@${filename}" \\\n`;
-      cmd += `  -F "engine=${currentEngine}" \\\n`;
-      cmd += `  -F "format=${currentFormat}"`;
-      if (enableAIVision) {
-        cmd += ` \\\n  -F "ai_vision=true"`;
-      }
-      curlSnippetJson.textContent = cmd;
+      cmd += `  -F "engine=local" \\\n`;
+      cmd += `  -F "format=markdown"`;
+      explanation = '💡 <strong>Mode Local (Default):</strong> Memproses dokumen secara offline menggunakan parser Python lokal (pdfplumber + PyMuPDF). 100% hemat Rp 0 token cost, cepat (~1.6 detik), dan privat.';
+    } else if (activeApiTab === 'cloud') {
+      cmd = `curl -X POST "http://localhost:8080/api/v1/extract" \\\n`;
+      cmd += `  -H "Authorization: Bearer ${token}" \\\n`;
+      cmd += `  -F "file=@${filename}" \\\n`;
+      cmd += `  -F "engine=cloud" \\\n`;
+      cmd += `  -F "format=markdown"`;
+      explanation = '☁️ <strong>Mode Cloud Precision:</strong> Mengirim dokumen ke Azure Document Intelligence (Layout Model). Cocok untuk dokumen hasil scan scanner tebal, kertas miring, atau tabel dengan merged-cells sangat rumit.';
+    } else if (activeApiTab === 'vision') {
+      cmd = `curl -X POST "http://localhost:8080/api/v1/extract" \\\n`;
+      cmd += `  -H "Authorization: Bearer ${token}" \\\n`;
+      cmd += `  -F "file=@${filename}" \\\n`;
+      cmd += `  -F "engine=local" \\\n`;
+      cmd += `  -F "format=markdown" \\\n`;
+      cmd += `  -F "ai_vision=true"`;
+      explanation = '🤖 <strong>Local + Azure AI Vision:</strong> Ekstraksi teks cepat via Local Engine dan otomatis memotong diagram/topologi arsitektur untuk dianalisis oleh Azure Computer Vision 4.0.';
+    } else if (activeApiTab === 'raw') {
+      cmd = `curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=local" \\\n`;
+      cmd += `  -H "Authorization: Bearer ${token}" \\\n`;
+      cmd += `  -F "file=@${filename}" \\\n`;
+      cmd += `  -o output.md`;
+      explanation = '📄 <strong>Raw Output Direct:</strong> Mengembalikan raw konten Markdown langsung dalam HTTP body stream (sangat ideal untuk pipeline Linux, redirect stdout, atau file saving otomatis).';
     }
 
-    if (curlSnippetRaw) {
-      let cmd = `curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=${currentEngine}" \\\n`;
-      cmd += `  -H "Authorization: Bearer ${token}" \\\n`;
-      cmd += `  -F "file=@${filename}" \\\n`;
-      cmd += `  -o output.${currentFormat === 'text' ? 'txt' : 'md'}`;
-      curlSnippetRaw.textContent = cmd;
+    curlDisplayCode.textContent = cmd;
+    if (curlSnippetExplanation) {
+      curlSnippetExplanation.innerHTML = explanation;
     }
   }
 
