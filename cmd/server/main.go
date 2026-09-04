@@ -58,6 +58,11 @@ func main() {
 		log.Printf(" Max Upload Size      : %d MB", cfg.MaxUploadSizeBytes/(1024*1024))
 		log.Printf(" Concurrency Workers  : %d slots", cfg.MaxConcurrentExtractions)
 		log.Printf(" Decompression Limit  : %d MB", cfg.MaxDecompressedSizeBytes/(1024*1024))
+		if cfg.EnableAIVision {
+			log.Printf(" Azure AI Vision      : Enabled (endpoint: %s)", cfg.AzureVisionEndpoint)
+		} else {
+			log.Printf(" Azure AI Vision      : Disabled")
+		}
 		log.Printf("==========================================================")
 
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

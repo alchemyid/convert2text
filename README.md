@@ -10,10 +10,15 @@ Dilengkapi dengan **REST API** (mendukung binary & multipart upload) dan **Moder
 ## 🌟 Fitur Utama
 
 - 📄 **Multiformat Support**: PDF, DOCX, XLSX, dan PPTX.
+- 🤖 **Microsoft Azure AI Vision (Solutioning & Architecture Insights)**:
+  - Ekstraksi informasi visual dari diagram arsitektur sistem, bagan alur, tabel gambar, dan screenshot menggunakan **Azure AI Vision Image Analysis 4.0**.
+  - **Diagram OCR / Inscriptions (`readResult`)**: Membaca seluruh teks di dalam gambar/diagram (nama server, API endpoint, database, protokol, dsb.) yang biasanya hilang pada ekstraksi teks standar.
+  - **Contextual Tags & Objects**: Mengidentifikasi kategori konseptual (`cloud computing`, `software architecture`, `database`) serta komponen sistem visual.
+  - **In-Context Solutioning Markdown**: Hasil analisis disematkan langsung di alur Markdown/Text pada posisi gambar muncul, sangat ideal untuk penyusunan arsitektur solusi, RFP/tender, dan konsumsi LLM / AI Agent.
 - 🖼️ **AI Agent Image Extraction & Semantic Placeholders**:
   - Mengekstrak gambar/diagram dari DOCX, PPTX, PDF, dan Excel ke asset store (`/api/v1/assets/{id}`).
   - Menyematkan referensi semantik terstruktur (`[IMAGE: name | Alt: descr]`) langsung di alur Markdown/Text.
-  - **Menghemat 80%–95% Vision Tokens** saat dokumen RFP/tender dikirim ke LLM / AI Agent.
+  - **Menghemat 80%–95% Vision Tokens** saat dokumen dikirim ke LLM / AI Agent.
 - 📊 **Smart Table & Layout Detection**:
   - Deteksi tabel otomatis dan rendering ke Markdown table rapi.
   - Dynamic CMap ToUnicode resolver memperbaiki decoding font subset kustom.
@@ -217,6 +222,11 @@ curl http://localhost:8080/api/v1/health
 | `MAX_CONCURRENT_EXTRACTIONS` | `CPU*2` | Batas serentak worker komputasi ekstraksi |
 | `MAX_DECOMPRESSED_SIZE_MB` | `150` | Batas proteksi Decompression Bomb (Zip Bomb) |
 | `EXTRACTION_TIMEOUT_SEC` | `60` | Batas timeout per request ekstraksi (detik) |
+| `ENABLE_AI_VISION` | `true` | Mengaktifkan/menonaktifkan analisis Azure AI Vision |
+| `AZURE_VISION_ENDPOINT` | *(Configured)* | Endpoint Azure AI Services / Computer Vision |
+| `AZURE_VISION_KEY` | *(Configured)* | API Key Azure Computer Vision |
+| `VISION_CONCURRENCY` | `4` | Worker pool paralel untuk analisis gambar |
+| `VISION_TIMEOUT_SEC` | `15` | Timeout per panggilan API Vision |
 
 ---
 

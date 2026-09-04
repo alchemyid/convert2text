@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"convert2text/internal/vision"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -352,3 +353,111 @@ func TestDOCXWithEmbeddedImage(t *testing.T) {
 		t.Errorf("Expected alt text in content placeholder, got: %s", res.Content)
 	}
 }
+
+type mockVisionAnalyzer struct {
+	analysis *vision.AnalysisResult
+}
+
+func (m *mockVisionAnalyzer) AnalyzeImage(ctx context.Context, data []byte) (*vision.AnalysisResult, error) {
+	return m.analysis, nil
+}
+
+func (m *mockVisionAnalyzer) BatchAnalyzeImages(ctx context.Context, imagesData map[string][]byte) map[string]*vision.AnalysisResult {
+	results := make(map[string]*vision.AnalysisResult)
+	for id := range imagesData {
+		results[id] = m.analysis
+	}
+	return results
+}
+
+func (m *mockVisionAnalyzer) IsEnabled() bool {
+	return true
+}
+
+func TestDOCXWithVisionEnrichment(t *testing.T) {
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+
+	docXML := `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Architecture Section</w:t></w:r></w:p>
+    <w:p>
+      <w:r>
+        <w:drawing>
+          <wp:inline>
+            <wp:docPr id="1" name="System Architecture" descr="Solution Diagram"/>
+            <a:graphic>
+              <a:graphicData>
+                <a:blip r:embed="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>`
+
+	relsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+</Relationships>`
+
+	wDoc, _ := zw.Create("word/document.xml")
+	_, _ = wDoc.Write([]byte(docXML))
+	wRels, _ := zw.Create("word/_rels/document.xml.rels")
+	_, _ = wRels.Write([]byte(relsXML))
+
+	wImg, _ := zw.Create("word/media/image1.png")
+	// Write dummy image data larger than 1500 bytes so it passes the size filter
+	dummyData := make([]byte, 2048)
+	copy(dummyData, []byte("\x89PNG\r\n\x1a\n"))
+	_, _ = wImg.Write(dummyData)
+	zw.Close()
+
+	mockAnalyzer := &mockVisionAnalyzer{
+		analysis: &vision.AnalysisResult{
+			Tags:          []string{"cloud architecture", "kubernetes", "database"},
+			Objects:       []string{"server", "database"},
+			ExtractedText: []string{"Ingress Controller", "API Gateway -> DB"},
+			Summary:       "Architecture diagram with 2 services",
+		},
+	}
+
+	reader := bytes.NewReader(buf.Bytes())
+	res, err := ExecuteExtraction(context.Background(), reader, int64(buf.Len()), "architecture.docx", Options{
+		Format:         FormatMarkdown,
+		EnableVision:   true,
+		VisionAnalyzer: mockAnalyzer,
+	})
+	if err != nil {
+		t.Fatalf("Extraction failed: %v", err)
+	}
+
+	if len(res.Images) == 0 {
+		t.Fatalf("Expected 1 image, got 0")
+	}
+
+	img := res.Images[0]
+	if img.VisionAnalysis == nil {
+		t.Fatalf("Expected VisionAnalysis to be populated on image, got nil")
+	}
+	if len(img.VisionAnalysis.Tags) != 3 {
+		t.Errorf("Expected 3 tags, got %d", len(img.VisionAnalysis.Tags))
+	}
+
+	// Verify enriched markdown content
+	if !strings.Contains(res.Content, "AI Vision Analysis (Solutioning & Architecture Insights)") {
+		t.Errorf("Expected solutioning header in content, got: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "API Gateway -> DB") {
+		t.Errorf("Expected OCR diagram text in markdown content, got: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "cloud architecture, kubernetes, database") {
+		t.Errorf("Expected tags in markdown content, got: %s", res.Content)
+	}
+}
+

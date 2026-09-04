@@ -16,16 +16,30 @@ import (
 	"convert2text/internal/assets"
 	"convert2text/internal/config"
 	"convert2text/internal/extractor"
+	"convert2text/internal/vision"
 )
 
 // ExtractHandler handles JSON and raw extraction requests.
 type ExtractHandler struct {
-	cfg *config.Config
+	cfg          *config.Config
+	visionClient vision.Analyzer
 }
 
 // NewExtractHandler creates a new ExtractHandler instance.
 func NewExtractHandler(cfg *config.Config) *ExtractHandler {
-	return &ExtractHandler{cfg: cfg}
+	var visionClient vision.Analyzer
+	if cfg.EnableAIVision && cfg.AzureVisionEndpoint != "" && cfg.AzureVisionKey != "" {
+		visionClient = vision.NewClient(cfg.AzureVisionEndpoint, cfg.AzureVisionKey, cfg.VisionTimeout, cfg.VisionConcurrency)
+	}
+	return &ExtractHandler{
+		cfg:          cfg,
+		visionClient: visionClient,
+	}
+}
+
+// SetVisionAnalyzer allows setting a custom or mock vision analyzer.
+func (h *ExtractHandler) SetVisionAnalyzer(analyzer vision.Analyzer) {
+	h.visionClient = analyzer
 }
 
 // HandleExtractJSON processes upload and returns structured JSON with content & statistics.
@@ -150,6 +164,7 @@ func (h *ExtractHandler) processExtraction(r *http.Request) (*extractor.Result, 
 	var reader io.Reader
 	var filename string
 	var formatParam string
+	var aiVisionParam string
 
 	contentType := r.Header.Get("Content-Type")
 	mediaType, _, _ := mime.ParseMediaType(contentType)
@@ -178,6 +193,13 @@ func (h *ExtractHandler) processExtraction(r *http.Request) (*extractor.Result, 
 				continue
 			}
 
+			if formName == "ai_vision" {
+				buf := new(strings.Builder)
+				_, _ = io.Copy(buf, part)
+				aiVisionParam = strings.TrimSpace(buf.String())
+				continue
+			}
+
 			if formName == "file" || part.FileName() != "" {
 				filename = part.FileName()
 				reader = part
@@ -202,7 +224,12 @@ func (h *ExtractHandler) processExtraction(r *http.Request) (*extractor.Result, 
 			filename = "upload.bin"
 		}
 		formatParam = r.URL.Query().Get("format")
+		aiVisionParam = r.URL.Query().Get("ai_vision")
 		reader = r.Body
+	}
+
+	if aiVisionParam == "" {
+		aiVisionParam = r.URL.Query().Get("ai_vision")
 	}
 
 	if formatParam == "" {
@@ -234,9 +261,24 @@ func (h *ExtractHandler) processExtraction(r *http.Request) (*extractor.Result, 
 	opts := extractor.Options{
 		Format:               outputFormat,
 		MaxDecompressedBytes: h.cfg.MaxDecompressedSizeBytes,
+		VisionAnalyzer:       h.visionClient,
+		EnableVision:         h.resolveEnableVision(aiVisionParam),
 	}
 
 	return extractor.ExecuteExtraction(ctx, tmpFile, written, filename, opts)
+}
+
+func (h *ExtractHandler) resolveEnableVision(param string) bool {
+	if param != "" {
+		lower := strings.ToLower(strings.TrimSpace(param))
+		if lower == "false" || lower == "0" || lower == "no" || lower == "off" {
+			return false
+		}
+		if lower == "true" || lower == "1" || lower == "yes" || lower == "on" {
+			return true
+		}
+	}
+	return h.cfg.EnableAIVision
 }
 
 func (h *ExtractHandler) handleError(w http.ResponseWriter, err error) {

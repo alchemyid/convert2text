@@ -26,6 +26,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const statType = document.getElementById('stat-type');
   const statImagesBadge = document.getElementById('stat-images-badge');
   const statImages = document.getElementById('stat-images');
+  const statVisionBadge = document.getElementById('stat-vision-badge');
+  const statVisionCount = document.getElementById('stat-vision-count');
   const tabRendered = document.getElementById('tab-rendered');
   const tabRaw = document.getElementById('tab-raw');
   const tabImages = document.getElementById('tab-images');
@@ -38,6 +40,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const copyText = document.getElementById('copy-text');
   const btnDownload = document.getElementById('btn-download');
   const dlExt = document.getElementById('dl-ext');
+  const btnToggleVision = document.getElementById('btn-toggle-vision');
+  const visionBtnText = document.getElementById('vision-btn-text');
+
+  let enableAIVision = true;
+
+  if (btnToggleVision) {
+    btnToggleVision.addEventListener('click', () => {
+      enableAIVision = !enableAIVision;
+      if (enableAIVision) {
+        btnToggleVision.classList.add('active');
+        if (visionBtnText) visionBtnText.textContent = 'AI Vision: Aktif (Solutioning OCR)';
+      } else {
+        btnToggleVision.classList.remove('active');
+        if (visionBtnText) visionBtnText.textContent = 'AI Vision: Nonaktif';
+      }
+    });
+  }
 
   // Format Switchers
   btnFmtMarkdown.addEventListener('click', () => setFormat('markdown'));
@@ -155,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('format', currentFormat);
+    formData.append('ai_vision', enableAIVision ? 'true' : 'false');
 
     try {
       const response = await fetch('/api/v1/extract', {
@@ -188,6 +208,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Image stats and gallery rendering
     const images = data.images || [];
+    const visionAnalyzedCount = (data.metadata && data.metadata.ai_vision_analyzed) || 0;
+
+    if (statVisionBadge && statVisionCount) {
+      if (visionAnalyzedCount > 0) {
+        statVisionCount.textContent = visionAnalyzedCount;
+        statVisionBadge.classList.remove('hidden');
+      } else {
+        statVisionBadge.classList.add('hidden');
+      }
+    }
+
     if (images.length > 0) {
       statImagesBadge.classList.remove('hidden');
       statImages.textContent = images.length;
@@ -200,13 +231,52 @@ document.addEventListener('DOMContentLoaded', () => {
       images.forEach((img, idx) => {
         const card = document.createElement('div');
         card.className = 'gallery-card';
+
+        const hasVision = !!img.vision_analysis;
+        const visionData = img.vision_analysis;
+
+        let visionSectionHtml = '';
+        if (hasVision) {
+          let tagsHtml = '';
+          if (visionData.tags && visionData.tags.length > 0) {
+            tagsHtml = `
+              <div class="gallery-tags-list">
+                ${visionData.tags.map(t => `<span class="gallery-tag-pill">${escapeHtml(t)}</span>`).join('')}
+              </div>
+            `;
+          }
+
+          let ocrHtml = '';
+          if (visionData.extracted_text && visionData.extracted_text.length > 0) {
+            ocrHtml = `
+              <div class="gallery-ocr-text" title="Teks / Diagram OCR Inscriptions">${escapeHtml(visionData.extracted_text.join('\n'))}</div>
+            `;
+          }
+
+          let objectsHtml = '';
+          if (visionData.objects && visionData.objects.length > 0) {
+            objectsHtml = `<div class="gallery-card-alt"><strong>Komponen:</strong> ${escapeHtml(visionData.objects.join(', '))}</div>`;
+          }
+
+          visionSectionHtml = `
+            <div class="gallery-vision-section">
+              <div class="gallery-vision-title">🤖 Insight AI Vision (Solutioning)</div>
+              ${tagsHtml}
+              ${objectsHtml}
+              ${ocrHtml}
+            </div>
+          `;
+        }
+
         card.innerHTML = `
           <div class="gallery-card-preview">
+            ${hasVision ? `<span class="gallery-vision-badge">🤖 AI Vision</span>` : ''}
             ${img.url ? `<img src="${img.url}" alt="${escapeHtml(img.alt_text || img.filename)}" loading="lazy">` : '<div class="gallery-placeholder-icon">🖼️</div>'}
           </div>
           <div class="gallery-card-body">
             <div class="gallery-card-title">${escapeHtml(img.filename || `Gambar ${idx + 1}`)}</div>
             ${img.alt_text ? `<div class="gallery-card-alt">${escapeHtml(img.alt_text)}</div>` : ''}
+            ${visionSectionHtml}
             <div class="gallery-card-meta">
               <span>${escapeHtml(img.location || 'Embedded')}</span>
               ${img.url ? `<a href="${img.url}" target="_blank" download="${escapeHtml(img.filename)}" class="gallery-download-btn">Unduh</a>` : ''}

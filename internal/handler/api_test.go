@@ -3,6 +3,7 @@ package handler
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -15,6 +16,7 @@ import (
 	"convert2text/internal/assets"
 	"convert2text/internal/config"
 	"convert2text/internal/middleware"
+	"convert2text/internal/vision"
 )
 
 func setupTestServer() (http.Handler, *config.Config) {
@@ -245,3 +247,118 @@ func TestExtractBundle(t *testing.T) {
 		t.Errorf("Expected document.md inside returned zip bundle")
 	}
 }
+
+type mockVisionHandlerAnalyzer struct{}
+
+func (m *mockVisionHandlerAnalyzer) AnalyzeImage(ctx context.Context, data []byte) (*vision.AnalysisResult, error) {
+	return &vision.AnalysisResult{
+		Tags:          []string{"system architecture", "cloud"},
+		Objects:       []string{"server"},
+		ExtractedText: []string{"Load Balancer -> Microservices"},
+		Summary:       "Architecture diagram",
+	}, nil
+}
+
+func (m *mockVisionHandlerAnalyzer) BatchAnalyzeImages(ctx context.Context, imagesData map[string][]byte) map[string]*vision.AnalysisResult {
+	results := make(map[string]*vision.AnalysisResult)
+	for id := range imagesData {
+		results[id] = &vision.AnalysisResult{
+			Tags:          []string{"system architecture", "cloud"},
+			Objects:       []string{"server"},
+			ExtractedText: []string{"Load Balancer -> Microservices"},
+			Summary:       "Architecture diagram",
+		}
+	}
+	return results
+}
+
+func (m *mockVisionHandlerAnalyzer) IsEnabled() bool {
+	return true
+}
+
+func TestExtractJSONWithAIVision(t *testing.T) {
+	cfg := &config.Config{
+		Port:                     "8080",
+		MaxUploadSizeBytes:       10 * 1024 * 1024,
+		MaxDecompressedSizeBytes: 50 * 1024 * 1024,
+		MaxConcurrentExtractions: 4,
+		ExtractionTimeout:        10 * time.Second,
+		EnableAIVision:           true,
+	}
+
+	extractHandler := NewExtractHandler(cfg)
+	extractHandler.SetVisionAnalyzer(&mockVisionHandlerAnalyzer{})
+
+	// Create docx with image
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+	docXML := `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Architecture Doc</w:t></w:r></w:p>
+    <w:p><w:r><w:drawing><wp:inline><wp:docPr id="1" name="Diag" descr="Cloud Diagram"/><a:graphic><a:graphicData><a:blip r:embed="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>
+  </w:body>
+</w:document>`
+	relsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+</Relationships>`
+
+	wDoc, _ := zw.Create("word/document.xml")
+	_, _ = wDoc.Write([]byte(docXML))
+	wRels, _ := zw.Create("word/_rels/document.xml.rels")
+	_, _ = wRels.Write([]byte(relsXML))
+	wImg, _ := zw.Create("word/media/image1.png")
+	dummyData := make([]byte, 2048)
+	copy(dummyData, []byte("\x89PNG\r\n\x1a\n"))
+	_, _ = wImg.Write(dummyData)
+	zw.Close()
+
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("file", "arch.docx")
+	_, _ = part.Write(buf.Bytes())
+	_ = writer.WriteField("format", "markdown")
+	_ = writer.WriteField("ai_vision", "true")
+	writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/extract", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+
+	extractHandler.HandleExtractJSON(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Content  string `json:"content"`
+			Images   []struct {
+				Filename       string                 `json:"filename"`
+				VisionAnalysis *vision.AnalysisResult `json:"vision_analysis"`
+			} `json:"images"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse JSON response: %v", err)
+	}
+
+	if len(resp.Data.Images) == 0 {
+		t.Fatalf("Expected at least 1 image, got 0")
+	}
+
+	if resp.Data.Images[0].VisionAnalysis == nil {
+		t.Errorf("Expected VisionAnalysis in image JSON, got nil")
+	}
+
+	if !strings.Contains(resp.Data.Content, "Load Balancer -> Microservices") {
+		t.Errorf("Expected OCR text in Markdown content, got: %s", resp.Data.Content)
+	}
+}
+

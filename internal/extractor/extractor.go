@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"convert2text/internal/assets"
+	"convert2text/internal/vision"
 )
 
 // OutputFormat defines the requested output format.
@@ -43,15 +46,16 @@ var (
 
 // ExtractedImage represents an image found inside a document.
 type ExtractedImage struct {
-	ID           string `json:"id"`
-	Filename     string `json:"filename"`
-	ContentType  string `json:"content_type"`
-	SizeBytes    int64  `json:"size_bytes"`
-	AltText      string `json:"alt_text,omitempty"`
-	Location     string `json:"location,omitempty"`
-	RelativePath string `json:"relative_path,omitempty"`
-	URL          string `json:"url,omitempty"`
-	Data         []byte `json:"-"`
+	ID             string                 `json:"id"`
+	Filename       string                 `json:"filename"`
+	ContentType    string                 `json:"content_type"`
+	SizeBytes      int64                  `json:"size_bytes"`
+	AltText        string                 `json:"alt_text,omitempty"`
+	Location       string                 `json:"location,omitempty"`
+	RelativePath   string                 `json:"relative_path,omitempty"`
+	URL            string                 `json:"url,omitempty"`
+	Data           []byte                 `json:"-"`
+	VisionAnalysis *vision.AnalysisResult `json:"vision_analysis,omitempty"`
 }
 
 // Options specifies extraction configuration.
@@ -59,6 +63,8 @@ type Options struct {
 	Format               OutputFormat
 	MaxDecompressedBytes int64
 	ExtractImages        bool
+	VisionAnalyzer       vision.Analyzer
+	EnableVision         bool
 }
 
 // Result holds the extraction output and metadata.
@@ -75,6 +81,11 @@ type Result struct {
 
 // FormatImageMarkdown creates a structured, AI-agent friendly image reference in Markdown.
 func FormatImageMarkdown(name, altText, url, location string) string {
+	return FormatImageMarkdownWithVision(name, altText, url, location, nil)
+}
+
+// FormatImageMarkdownWithVision formats an image reference with AI Vision solutioning analysis.
+func FormatImageMarkdownWithVision(name, altText, url, location string, visionRes *vision.AnalysisResult) string {
 	var sb strings.Builder
 	title := name
 	if title == "" {
@@ -90,15 +101,24 @@ func FormatImageMarkdown(name, altText, url, location string) string {
 		sb.WriteString("\n> - **Description / Alt-Text**: " + altText)
 	}
 	if url != "" {
-		sb.WriteString(fmt.Sprintf("\n![%s](%s)\n\n", title, url))
+		sb.WriteString(fmt.Sprintf("\n![%s](%s)\n", title, url))
 	} else {
-		sb.WriteString("\n\n")
+		sb.WriteString("\n")
 	}
+	if visionRes != nil {
+		sb.WriteString(vision.FormatSolutioningMarkdown(visionRes))
+	}
+	sb.WriteString("\n")
 	return sb.String()
 }
 
 // FormatImageText creates a concise text-only image reference.
 func FormatImageText(name, altText, location string) string {
+	return FormatImageTextWithVision(name, altText, location, nil)
+}
+
+// FormatImageTextWithVision formats a text-only image reference with AI Vision solutioning analysis.
+func FormatImageTextWithVision(name, altText, location string, visionRes *vision.AnalysisResult) string {
 	title := name
 	if title == "" {
 		title = "Image"
@@ -106,10 +126,17 @@ func FormatImageText(name, altText, location string) string {
 	if location != "" {
 		title += " (" + location + ")"
 	}
+	var sb strings.Builder
 	if altText != "" && altText != name {
-		return fmt.Sprintf("\n[IMAGE: %s - %s]\n\n", title, altText)
+		sb.WriteString(fmt.Sprintf("\n[IMAGE: %s - %s]\n", title, altText))
+	} else {
+		sb.WriteString(fmt.Sprintf("\n[IMAGE: %s]\n", title))
 	}
-	return fmt.Sprintf("\n[IMAGE: %s]\n\n", title)
+	if visionRes != nil {
+		sb.WriteString(vision.FormatSolutioningText(visionRes))
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // Extractor is the common interface for extracting text/markdown from documents.
@@ -227,6 +254,11 @@ func ExecuteExtraction(ctx context.Context, r io.ReaderAt, size int64, filename 
 		return nil, err
 	}
 
+	// Enrich extracted visual assets with Azure AI Vision analysis for solutioning context
+	if opts.EnableVision && opts.VisionAnalyzer != nil && opts.VisionAnalyzer.IsEnabled() {
+		EnrichResultWithVision(ctx, result, opts.VisionAnalyzer, opts.Format)
+	}
+
 	result.Filename = sanitizedName
 	result.DetectedType = fileType
 	result.OutputFormat = opts.Format
@@ -235,6 +267,77 @@ func ExecuteExtraction(ctx context.Context, r io.ReaderAt, size int64, filename 
 	result.WordCount = CountWords(result.Content)
 
 	return result, nil
+}
+
+// EnrichResultWithVision processes extracted images using Vision AI and updates document content and image metadata.
+func EnrichResultWithVision(ctx context.Context, result *Result, analyzer vision.Analyzer, format OutputFormat) {
+	if analyzer == nil || !analyzer.IsEnabled() || len(result.Images) == 0 {
+		return
+	}
+
+	imagesData := make(map[string][]byte)
+	store := assets.GetDefaultStore()
+
+	for _, img := range result.Images {
+		data := img.Data
+		if len(data) == 0 {
+			if item, exists := store.Get(img.ID); exists {
+				data = item.Data
+			}
+		}
+		if len(data) >= 1500 {
+			imagesData[img.ID] = data
+		}
+	}
+
+	if len(imagesData) == 0 {
+		return
+	}
+
+	analysisMap := analyzer.BatchAnalyzeImages(ctx, imagesData)
+	if len(analysisMap) == 0 {
+		return
+	}
+
+	analyzedCount := 0
+	for i := range result.Images {
+		img := &result.Images[i]
+		visionRes, found := analysisMap[img.ID]
+		if !found || visionRes == nil {
+			continue
+		}
+
+		img.VisionAnalysis = visionRes
+		analyzedCount++
+
+		relPath := img.RelativePath
+		if relPath == "" {
+			relPath = "./assets/" + img.Filename
+		}
+
+		if format == FormatMarkdown {
+			oldBlock := FormatImageMarkdown(img.Filename, img.AltText, relPath, img.Location)
+			newBlock := FormatImageMarkdownWithVision(img.Filename, img.AltText, relPath, img.Location, visionRes)
+			if strings.Contains(result.Content, oldBlock) {
+				result.Content = strings.Replace(result.Content, oldBlock, newBlock, 1)
+			} else if strings.Contains(result.Content, relPath) {
+				target := fmt.Sprintf("](%s)", relPath)
+				replacement := target + "\n" + vision.FormatSolutioningMarkdown(visionRes)
+				result.Content = strings.Replace(result.Content, target, replacement, 1)
+			}
+		} else {
+			oldBlock := FormatImageText(img.Filename, img.AltText, img.Location)
+			newBlock := FormatImageTextWithVision(img.Filename, img.AltText, img.Location, visionRes)
+			if strings.Contains(result.Content, oldBlock) {
+				result.Content = strings.Replace(result.Content, oldBlock, newBlock, 1)
+			}
+		}
+	}
+
+	if result.Metadata == nil {
+		result.Metadata = make(map[string]interface{})
+	}
+	result.Metadata["ai_vision_analyzed"] = analyzedCount
 }
 
 // DRY Utilities

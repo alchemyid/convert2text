@@ -50,17 +50,27 @@
           <p>Mendukung format <strong>PDF</strong>, Word (<strong>DOCX</strong>), Excel (<strong>XLSX</strong>), dan PowerPoint (<strong>PPTX</strong>).</p>
         </div>
 
-        <!-- Format Selector Options -->
+        <!-- Format & Vision Selector Options -->
         <div class="options-bar">
-          <label class="option-label">Format Output:</label>
-          <div class="toggle-group">
-            <button type="button" class="toggle-btn active" id="btn-fmt-markdown" data-format="markdown">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
-              Markdown (.md)
-            </button>
-            <button type="button" class="toggle-btn" id="btn-fmt-text" data-format="text">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-              Plain Text (.txt)
+          <div class="option-group">
+            <label class="option-label">Format Output:</label>
+            <div class="toggle-group">
+              <button type="button" class="toggle-btn active" id="btn-fmt-markdown" data-format="markdown">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
+                Markdown (.md)
+              </button>
+              <button type="button" class="toggle-btn" id="btn-fmt-text" data-format="text">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                Plain Text (.txt)
+              </button>
+            </div>
+          </div>
+
+          <div class="option-group">
+            <label class="option-label">Visual Intelligence:</label>
+            <button type="button" class="toggle-btn vision-toggle active" id="btn-toggle-vision" title="Ekstrak teks diagram, komponen arsitektur, dan insight visual via Azure AI Vision">
+              <span class="vision-icon">🤖</span>
+              <span id="vision-btn-text">AI Vision: Aktif (Solutioning OCR)</span>
             </button>
           </div>
         </div>
@@ -121,13 +131,14 @@
             <span class="stat-badge">📝 <span id="stat-words">0</span> kata</span>
             <span class="stat-badge">📦 <span id="stat-type">-</span></span>
             <span class="stat-badge hidden" id="stat-images-badge">🖼️ <span id="stat-images">0</span> gambar</span>
+            <span class="stat-badge vision-badge hidden" id="stat-vision-badge">🤖 <span id="stat-vision-count">0</span> diagram dianalisis AI Vision</span>
           </div>
 
           <div class="result-actions">
             <div class="view-tabs">
               <button class="tab-btn active" id="tab-rendered">Preview Rapi</button>
               <button class="tab-btn" id="tab-raw">Raw Markdown/Text</button>
-              <button class="tab-btn hidden" id="tab-images">Gambar (<span id="tab-images-count">0</span>)</button>
+              <button class="tab-btn hidden" id="tab-images">Gambar & Diagram (<span id="tab-images-count">0</span>)</button>
             </div>
             <button class="btn btn-secondary btn-sm" id="btn-copy" title="Salin ke Clipboard">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
@@ -156,27 +167,28 @@
       <section class="card api-section" id="api-guide">
         <div class="api-header">
           <h3>Integrasi REST API untuk Aplikasi Anda</h3>
-          <p>Kirim file binary langsung dari backend atau script automasi Anda ke REST API ini:</p>
+          <p>Kirim file binary langsung dari backend atau script automasi Anda ke REST API ini (dengan dukungan Azure AI Vision untuk OCR diagram & arsitektur solusi):</p>
         </div>
 
         <div class="code-snippets">
           <div class="snippet-tab">
             <span class="endpoint-badge post">POST</span>
             <code>/api/v1/extract</code>
-            <span class="snippet-desc">Respon JSON lengkap beserta metadata & statistik ekstraksi</span>
+            <span class="snippet-desc">Respon JSON lengkap beserta metadata, statistik ekstraksi, & wawasan AI Vision</span>
           </div>
           <pre class="code-block"><code id="curl-snippet-json">curl -X POST "http://localhost:8080/api/v1/extract" \
   -F "file=@document.pdf" \
-  -F "format=markdown"</code></pre>
+  -F "format=markdown" \
+  -F "ai_vision=true"</code></pre>
 
           <div class="snippet-tab">
             <span class="endpoint-badge post">POST</span>
             <code>/api/v1/extract/raw</code>
-            <span class="snippet-desc">Respon langsung raw content (ideal untuk Linux pipe, e.g. <code>curl ... > out.md</code>)</span>
+            <span class="snippet-desc">Respon langsung raw content dengan diagram OCR terinjeksi (ideal untuk Linux pipe)</span>
           </div>
-          <pre class="code-block"><code id="curl-snippet-raw">curl -X POST "http://localhost:8080/api/v1/extract/raw" \
-  -F "file=@report.xlsx" \
-  -F "format=markdown" > report.md</code></pre>
+          <pre class="code-block"><code id="curl-snippet-raw">curl -X POST "http://localhost:8080/api/v1/extract/raw?ai_vision=true" \
+  -F "file=@presentation.pptx" \
+  -F "format=markdown" > solution.md</code></pre>
         </div>
       </section>
     </main>
