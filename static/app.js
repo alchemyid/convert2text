@@ -56,6 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     inputApiToken.addEventListener('input', () => {
       localStorage.setItem('c2t_api_token', inputApiToken.value.trim());
+      updateCurlSnippets();
     });
   }
 
@@ -69,12 +70,44 @@ document.addEventListener('DOMContentLoaded', () => {
         btnToggleVision.classList.remove('active');
         if (visionBtnText) visionBtnText.textContent = 'AI Vision: Nonaktif';
       }
+      updateCurlSnippets();
     });
   }
 
   // Engine Switchers
   if (btnEngineLocal) btnEngineLocal.addEventListener('click', () => setEngine('local'));
   if (btnEngineCloud) btnEngineCloud.addEventListener('click', () => setEngine('cloud'));
+
+  const curlSnippetJson = document.getElementById('curl-snippet-json');
+  const curlSnippetRaw = document.getElementById('curl-snippet-raw');
+
+  function updateCurlSnippets() {
+    const token = (inputApiToken && inputApiToken.value.trim()) || 'c2t_sec_98f8a17c33d83_convert2text_token';
+    const filename = selectedFile ? selectedFile.name : 'document.pdf';
+
+    if (curlSnippetJson) {
+      let cmd = `curl -X POST "http://localhost:8080/api/v1/extract" \\\n`;
+      cmd += `  -H "Authorization: Bearer ${token}" \\\n`;
+      cmd += `  -F "file=@${filename}" \\\n`;
+      cmd += `  -F "engine=${currentEngine}" \\\n`;
+      cmd += `  -F "format=${currentFormat}"`;
+      if (enableAIVision) {
+        cmd += ` \\\n  -F "ai_vision=true"`;
+      }
+      curlSnippetJson.textContent = cmd;
+    }
+
+    if (curlSnippetRaw) {
+      let cmd = `curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=${currentEngine}" \\\n`;
+      cmd += `  -H "Authorization: Bearer ${token}" \\\n`;
+      cmd += `  -F "file=@${filename}" \\\n`;
+      cmd += `  -o output.${currentFormat === 'text' ? 'txt' : 'md'}`;
+      curlSnippetRaw.textContent = cmd;
+    }
+  }
+
+  // Initialize snippets on page load
+  updateCurlSnippets();
 
   function setEngine(eng) {
     currentEngine = eng;
@@ -85,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (btnEngineCloud) btnEngineCloud.classList.add('active');
       if (btnEngineLocal) btnEngineLocal.classList.remove('active');
     }
+    updateCurlSnippets();
   }
 
   // Format Switchers
@@ -102,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnFmtMarkdown.classList.remove('active');
       dlExt.textContent = '.txt';
     }
+    updateCurlSnippets();
   }
 
   // Dropzone Events
@@ -163,6 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dropzoneContent.classList.add('hidden');
     fileView.classList.remove('hidden');
     btnConvert.disabled = false;
+    updateCurlSnippets();
   }
 
   function resetFileInput() {
@@ -172,6 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fileView.classList.add('hidden');
     btnConvert.disabled = true;
     hideError();
+    updateCurlSnippets();
   }
 
   function formatBytes(bytes) {

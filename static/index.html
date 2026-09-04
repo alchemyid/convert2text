@@ -186,36 +186,39 @@
       <!-- REST API Usage & cURL Snippet Section -->
       <section class="card api-section" id="api-guide">
         <div class="api-header">
-          <h3>Integrasi REST API untuk Aplikasi Anda</h3>
-          <p>Kirim file binary langsung dari backend atau script automasi Anda ke REST API ini (dengan dukungan Azure AI Vision untuk OCR diagram & arsitektur solusi):</p>
+          <h3>Integrasi REST API untuk Aplikasi & AI Agent</h3>
+          <p>Kirim file binary langsung dari backend atau script automasi Anda. Pilih <strong>Local Engine</strong> (Rp 0 token cost) atau <strong>Cloud Precision</strong> (Azure Document Intelligence) via parameter <code>engine</code>:</p>
         </div>
 
         <div class="code-snippets">
           <div class="snippet-tab">
             <span class="endpoint-badge post">POST</span>
             <code>/api/v1/extract</code>
-            <span class="snippet-desc">Respon JSON lengkap beserta metadata, statistik ekstraksi, & wawasan AI Vision</span>
+            <span class="snippet-desc">Respon JSON terstruktur (konten, statistik, tabel, & analisis diagram AI Vision)</span>
           </div>
           <pre class="code-block"><code id="curl-snippet-json">curl -X POST "http://localhost:8080/api/v1/extract" \
+  -H "Authorization: Bearer c2t_sec_98f8a17c33d83_convert2text_token" \
   -F "file=@document.pdf" \
+  -F "engine=local" \
   -F "format=markdown" \
   -F "ai_vision=true"</code></pre>
 
           <div class="snippet-tab">
             <span class="endpoint-badge post">POST</span>
             <code>/api/v1/extract/raw</code>
-            <span class="snippet-desc">Respon langsung raw content dengan diagram OCR terinjeksi (ideal untuk Linux pipe)</span>
+            <span class="snippet-desc">Respon langsung konten teks Markdown murni (ideal untuk CLI pipe atau output file langsung)</span>
           </div>
-          <pre class="code-block"><code id="curl-snippet-raw">curl -X POST "http://localhost:8080/api/v1/extract/raw?ai_vision=true" \
-  -F "file=@presentation.pptx" \
-  -F "format=markdown" > solution.md</code></pre>
+          <pre class="code-block"><code id="curl-snippet-raw">curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=local" \
+  -H "Authorization: Bearer c2t_sec_98f8a17c33d83_convert2text_token" \
+  -F "file=@document.pdf" \
+  -o output.md</code></pre>
         </div>
       </section>
     </main>
 
     <!-- Footer -->
     <footer class="footer">
-      <p>Convert2Text • High Efficiency Document Parsing Engine in Go • Protected with Concurrency Semaphore & Zip-Bomb Limits</p>
+      <p>Convert2Text • Python Dual-Engine Document Extractor (Local & Azure Document Intelligence) • Zero-Hardcoded & LLM-Ready</p>
     </footer>
   </div>
 

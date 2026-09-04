@@ -253,7 +253,7 @@ Endpoint utama untuk mengunggah dokumen dan menerima respons JSON terstruktur le
   - `format` *(opsional)*: Format keluaran (`"markdown"` default, atau `"text"`).
   - `ai_vision` *(opsional)*: `"true"` atau `"false"` untuk mengaktifkan AI Vision pada diagram teknis.
 
-#### Contoh Request (cURL)
+#### Contoh Request 1: Mode Local (Default - Rp 0 Cost)
 ```bash
 curl -X POST "http://localhost:8080/api/v1/extract" \
   -H "Authorization: Bearer <API_BEARER_TOKEN>" \
@@ -262,6 +262,20 @@ curl -X POST "http://localhost:8080/api/v1/extract" \
   -F "format=markdown" \
   -F "ai_vision=true"
 ```
+
+#### Contoh Request 2: Mode Cloud Precision (Azure Document Intelligence)
+Gunakan parameter `-F "engine=cloud"` untuk melempar pemrosesan layout dokumen ke Azure Document Intelligence:
+```bash
+curl -X POST "http://localhost:8080/api/v1/extract" \
+  -H "Authorization: Bearer <API_BEARER_TOKEN>" \
+  -F "file=@2025 KAK Pengadaan Solusi AWS DRS_SF.pdf" \
+  -F "engine=cloud" \
+  -F "format=markdown"
+```
+
+> **Perbedaan Parameter `engine` vs `ai_vision`**:
+> - **`engine=local` / `engine=cloud`**: Menentukan siapa yang mem-parsing **teks & tabel seluruh dokumen** (Local: `pdfplumber` + `PyMuPDF` vs Cloud: Azure Document Intelligence `prebuilt-layout`).
+> - **`ai_vision=true` / `ai_vision=false`**: Menentukan apakah **gambar diagram teknis/arsitektur** di dalam dokumen akan dianalisis secara visual oleh Azure AI Vision 4.0 (OCR diagram, teknologi terdeteksi, ringkasan solusi). Bisa dikombinasikan dengan mode `local` maupun `cloud`.
 
 #### Response Sukses (`200 OK`)
 ```json
@@ -340,12 +354,20 @@ Endpoint ringan yang langsung mengembalikan konten teks mentah (`text/markdown` 
 - **Query Parameter**: `engine=local` *(default)* atau `engine=cloud`
 - **Content-Type**: `multipart/form-data` (file pada key `file`)
 
-#### Contoh Request (cURL)
+#### Contoh Request 1: Mode Local
 ```bash
 curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=local" \
   -H "Authorization: Bearer <API_BEARER_TOKEN>" \
   -F "file=@2025 KAK Pengadaan Solusi AWS DRS_SF.pdf" \
   -o output.md
+```
+
+#### Contoh Request 2: Mode Cloud Precision (Azure Document Intelligence)
+```bash
+curl -X POST "http://localhost:8080/api/v1/extract/raw?engine=cloud" \
+  -H "Authorization: Bearer <API_BEARER_TOKEN>" \
+  -F "file=@2025 KAK Pengadaan Solusi AWS DRS_SF.pdf" \
+  -o output_cloud.md
 ```
 
 ---
