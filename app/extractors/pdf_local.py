@@ -389,10 +389,31 @@ class PDFLocalExtractor(BaseExtractor):
             fitz_doc.close()
             pdfplumber_doc.close()
 
-        # Enrich candidate images with Azure Vision AI if configured
-        if vision_client and vision_client.enabled and extracted_images:
+        # Enrich candidate images with Azure Vision AI if configured and requested
+        enable_vision_kw = kwargs.get("enable_vision")
+        should_run_vision = (
+            enable_vision_kw if enable_vision_kw is not None
+            else (vision_client and vision_client.enabled)
+        )
+        if should_run_vision and vision_client and vision_client.enabled and extracted_images:
             logger.info("Enriching %d candidate images with Azure Vision AI...", len(extracted_images))
             await vision_client.enrich_images(extracted_images)
+
+            # Inject vision analysis into markdown right below image placeholders
+            for img in extracted_images:
+                if img.vision_analysis:
+                    old_ph = format_image_placeholder(img)
+                    enrichment_md = [old_ph]
+                    if img.vision_analysis.summary:
+                        enrichment_md.append(f"> 🤖 **AI Vision Description**: {img.vision_analysis.summary}")
+                    if img.vision_analysis.extracted_text:
+                        ocr_lines = ", ".join(img.vision_analysis.extracted_text)
+                        enrichment_md.append(f"> 📝 **Diagram Text/Labels**: `{ocr_lines}`")
+                    new_ph = "\n".join(enrichment_md)
+
+                    for i in range(len(md_parts)):
+                        if old_ph in md_parts[i]:
+                            md_parts[i] = md_parts[i].replace(old_ph, new_ph)
 
         final_markdown = "\n\n---\n\n".join(md_parts)
         word_count = len(final_markdown.split())

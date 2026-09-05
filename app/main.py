@@ -121,7 +121,7 @@ def detect_document_extension(file_bytes: bytes, filename: str = "") -> str:
 
 
 async def extract_document(
-    file_bytes: bytes, filename: str, engine: str = "local"
+    file_bytes: bytes, filename: str, engine: str = "local", enable_vision: Optional[bool] = None
 ) -> ExtractionResult:
     """Dispatches extraction to the appropriate parser based on binary signature or extension."""
     ext = detect_document_extension(file_bytes, filename)
@@ -130,7 +130,7 @@ async def extract_document(
     if ext == ".pdf":
         if engine == "cloud":
             return await pdf_cloud_extractor.extract(file_bytes, filename)
-        return await pdf_local_extractor.extract(file_bytes, filename)
+        return await pdf_local_extractor.extract(file_bytes, filename, enable_vision=enable_vision)
     elif ext in (".docx", ".doc"):
         return await docx_extractor.extract(file_bytes, filename)
     elif ext in (".pptx", ".ppt"):
@@ -401,7 +401,16 @@ async def api_extract(
         if selected_engine not in ("local", "cloud"):
             selected_engine = "local"
 
-        res = await extract_document(content, filename, selected_engine)
+        is_vision_enabled = None
+        if selected_vision is not None:
+            if isinstance(selected_vision, bool):
+                is_vision_enabled = selected_vision
+            elif str(selected_vision).lower().strip() in ("true", "1", "yes"):
+                is_vision_enabled = True
+            elif str(selected_vision).lower().strip() in ("false", "0", "no"):
+                is_vision_enabled = False
+
+        res = await extract_document(content, filename, selected_engine, enable_vision=is_vision_enabled)
         duration_ms = int((time.time() - start_time) * 1000)
 
         images_data = []
@@ -472,7 +481,16 @@ async def api_extract_raw(
         file_upload=file,
         engine_param=engine,
     )
-    res = await extract_document(content, filename, selected_engine)
+    is_vision_enabled = None
+    if selected_vision is not None:
+        if isinstance(selected_vision, bool):
+            is_vision_enabled = selected_vision
+        elif str(selected_vision).lower().strip() in ("true", "1", "yes"):
+            is_vision_enabled = True
+        elif str(selected_vision).lower().strip() in ("false", "0", "no"):
+            is_vision_enabled = False
+
+    res = await extract_document(content, filename, selected_engine, enable_vision=is_vision_enabled)
     return PlainTextResponse(res.content, media_type="text/markdown")
 
 
