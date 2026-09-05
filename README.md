@@ -297,17 +297,25 @@ curl -X POST "http://localhost:8080/api/v1/extract" \
   }'
 ```
 
-**2. Skema Direct Base64 JSON:**
+**2. Skema Power Automate / Azure Logic Apps (Direct JSON):**
+```json
+{
+  "file_name": "@{triggerOutputs()?['body/file/name']}",
+  "file_base64": "@{triggerOutputs()?['body/file/contentBytes']}",
+  "engine": "@{triggerOutputs()?['body/text']}"
+}
+```
+*Catatan:* Tool ini otomatis mendeteksi tipe konten (*content type*) berdasarkan **Magic Bytes biner** dokumen dari `file_base64`, sehingga tetap bekerja 100% akurat meskipun `file_name` tidak memiliki ekstensi.
+
+**3. Skema Direct Base64 Umum:**
 ```bash
 curl -X POST "http://localhost:8080/api/v1/extract" \
   -H "Authorization: Bearer <API_BEARER_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
-    "file": "<BASE64_ENCODED_CONTENT>",
-    "filename": "document.pdf",
-    "engine": "local",
-    "format": "markdown",
-    "ai_vision": false
+    "file_base64": "<BASE64_ENCODED_CONTENT>",
+    "file_name": "document.pdf",
+    "engine": "local"
   }'
 ```
 

@@ -1,12 +1,14 @@
 import argparse
 import asyncio
 import base64
+import io
 import json
 import logging
 import os
 import re
 import sys
 import time
+import zipfile
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -72,11 +74,58 @@ pptx_extractor = PPTXExtractor()
 xlsx_extractor = XLSXExtractor()
 
 
+def detect_document_extension(file_bytes: bytes, filename: str = "") -> str:
+    """
+    Intelligently determines the document type from magic bytes / binary content signatures,
+    with fallback to filename extension and plain text decoding.
+    """
+    # 1. PDF magic bytes (%PDF-)
+    if file_bytes.startswith(b"%PDF-"):
+        return ".pdf"
+
+    # 2. Modern Microsoft Office XML documents (ZIP container starting with PK\x03\x04)
+    if file_bytes.startswith(b"PK\x03\x04"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+                names = zf.namelist()
+                if any(n.startswith("word/") for n in names):
+                    return ".docx"
+                elif any(n.startswith("xl/") for n in names):
+                    return ".xlsx"
+                elif any(n.startswith("ppt/") for n in names):
+                    return ".pptx"
+        except Exception:
+            pass
+
+    # 3. Legacy Microsoft Office binary files (OLE2 compound document)
+    if file_bytes.startswith(b"\xd0\xcf\x11\xe0"):
+        ext = Path(filename).suffix.lower() if filename else ""
+        if ext in (".doc", ".xls", ".ppt"):
+            return ext
+        return ".doc"
+
+    # 4. Fallback to filename extension if provided
+    if filename:
+        ext = Path(filename).suffix.lower()
+        if ext in (".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".txt", ".md", ".csv"):
+            return ext
+
+    # 5. Plain text check
+    try:
+        file_bytes[:1024].decode("utf-8")
+        return ".txt"
+    except UnicodeDecodeError:
+        pass
+
+    return Path(filename).suffix.lower() if filename else ".bin"
+
+
 async def extract_document(
     file_bytes: bytes, filename: str, engine: str = "local"
 ) -> ExtractionResult:
-    """Dispatches extraction to the appropriate parser based on file extension and selected engine."""
-    ext = Path(filename).suffix.lower()
+    """Dispatches extraction to the appropriate parser based on binary signature or extension."""
+    ext = detect_document_extension(file_bytes, filename)
+    logger.info("Detected document type: '%s' for filename: '%s'", ext, filename)
 
     if ext == ".pdf":
         if engine == "cloud":
@@ -97,9 +146,9 @@ async def extract_document(
         return ExtractionResult(
             content=text,
             images=[],
-            metadata={"filename": filename, "engine": "plain"},
+            metadata={"filename": filename, "engine": "plain", "detected_extension": ext},
             word_count=len(text.split()),
-            detected_type="txt",
+            detected_type=ext.lstrip(".") or "txt",
         )
 
 
@@ -258,22 +307,28 @@ async def parse_incoming_payload(
                 if extracted_content:
                     return extracted_content, extracted_filename, extracted_engine, extracted_format, extracted_vision
 
-            # 2B. Direct JSON with file / content field
+            # 2B. Direct JSON with file / content field (e.g. Power Automate / Logic Apps / AI Agent)
             raw_file = (
-                json_data.get("file")
+                json_data.get("file_base64")
+                or json_data.get("contentBytes")
+                or json_data.get("file")
                 or json_data.get("content")
+                or json_data.get("file_content")
                 or json_data.get("document")
                 or json_data.get("data")
-                or json_data.get("file_content")
             )
             if raw_file:
                 extracted_filename = (
-                    json_data.get("filename")
-                    or json_data.get("file_name")
+                    json_data.get("file_name")
+                    or json_data.get("filename")
                     or json_data.get("name")
                     or "document.pdf"
                 )
-                extracted_engine = json_data.get("engine") or effective_engine
+                extracted_engine = (
+                    str(json_data.get("engine") or "").strip()
+                    or effective_engine
+                    or "local"
+                )
                 extracted_format = json_data.get("format") or effective_format
                 extracted_vision = json_data.get("ai_vision", effective_vision)
 
