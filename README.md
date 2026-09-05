@@ -273,6 +273,44 @@ curl -X POST "http://localhost:8080/api/v1/extract" \
   -F "format=markdown"
 ```
 
+#### Opsi B: Panggilan dari AI Agent / Pipeline Automasi (JSON Payload)
+Backend Convert2Text secara otomatis mendeteksi dan mendukung payload dari platform AI Agent (seperti **Azure Logic Apps**, **Power Automate**, **Dify**, **Flowise**, atau skrip Python/Node.js):
+
+**1. Skema JSON `$multipart` (Format Standar AI Agent / Logic Apps):**
+```bash
+curl -X POST "http://localhost:8080/api/v1/extract" \
+  -H "Authorization: Bearer <API_BEARER_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "$content-type": "multipart/form-data",
+    "$multipart": [
+      {
+        "headers": {
+          "Content-Disposition": "form-data; name=\"file\"; filename=\"test.pdf\""
+        },
+        "body": {
+          "$content-type": "application/pdf",
+          "$content": "<BASE64_ENCODED_CONTENT>"
+        }
+      }
+    ]
+  }'
+```
+
+**2. Skema Direct Base64 JSON:**
+```bash
+curl -X POST "http://localhost:8080/api/v1/extract" \
+  -H "Authorization: Bearer <API_BEARER_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file": "<BASE64_ENCODED_CONTENT>",
+    "filename": "document.pdf",
+    "engine": "local",
+    "format": "markdown",
+    "ai_vision": false
+  }'
+```
+
 > **Perbedaan Parameter `engine` vs `ai_vision`**:
 > - **`engine=local` / `engine=cloud`**: Menentukan siapa yang mem-parsing **teks & tabel seluruh dokumen** (Local: `pdfplumber` + `PyMuPDF` vs Cloud: Azure Document Intelligence `prebuilt-layout`).
 > - **`ai_vision=true` / `ai_vision=false`**: Menentukan apakah **gambar diagram teknis/arsitektur** di dalam dokumen akan dianalisis secara visual oleh Azure AI Vision 4.0 (OCR diagram, teknologi terdeteksi, ringkasan solusi). Bisa dikombinasikan dengan mode `local` maupun `cloud`.

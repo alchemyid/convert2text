@@ -1,11 +1,14 @@
 import argparse
 import asyncio
+import base64
+import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -147,25 +150,203 @@ async def get_asset(filename: str):
     return Response(content=asset["data"], media_type=asset["mime_type"])
 
 
+def _clean_and_decode_base64(raw_str: str) -> bytes:
+    """Sanitize and decode base64 strings with or without data URI prefix."""
+    s = raw_str.strip()
+    if "," in s and "base64" in s.split(",")[0]:
+        s = s.split(",", 1)[1]
+    s = re.sub(r"\s+", "", s)
+    pad = (4 - len(s) % 4) % 4
+    s += "=" * pad
+    return base64.b64decode(s)
+
+
+async def parse_incoming_payload(
+    request: Request,
+    file_upload: Optional[UploadFile] = None,
+    engine_param: Optional[str] = None,
+    format_param: Optional[str] = None,
+    ai_vision_param: Optional[str] = None,
+) -> Tuple[bytes, str, str, str, Optional[str]]:
+    """
+    Extracts document bytes, filename, engine, format, and ai_vision from:
+    1. Standard multipart form (file: UploadFile)
+    2. AI Agent JSON schema with $multipart (Azure Logic Apps / Power Automate / Dify)
+    3. Direct Base64 JSON schema ({"file": "<base64>", "filename": "..."})
+    4. Raw body bytes (fallback)
+    """
+    query_engine = request.query_params.get("engine")
+    query_format = request.query_params.get("format")
+    query_vision = request.query_params.get("ai_vision")
+
+    effective_engine = engine_param or query_engine or "local"
+    effective_format = format_param or query_format or "markdown"
+    effective_vision = ai_vision_param or query_vision
+
+    # 1. Direct UploadFile provided (standard multipart/form-data)
+    if file_upload is not None:
+        content = await file_upload.read()
+        if content and len(content) > 0:
+            filename = file_upload.filename or "uploaded_document"
+            return content, filename, effective_engine, effective_format, effective_vision
+
+    # 2. Inspect request body for JSON or raw data
+    try:
+        body_bytes = await request.body()
+    except Exception:
+        body_bytes = b""
+
+    if body_bytes:
+        # Try parsing JSON
+        json_data = None
+        try:
+            json_data = json.loads(body_bytes.decode("utf-8", errors="ignore"))
+        except Exception:
+            pass
+
+        if isinstance(json_data, dict):
+            # 2A. AI Agent $multipart format
+            # e.g.: {"$content-type": "multipart/form-data", "$multipart": [{"headers": {...}, "body": {"$content": "base64..."}}]}
+            if "$multipart" in json_data and isinstance(json_data["$multipart"], list):
+                extracted_content = None
+                extracted_filename = "document.pdf"
+                extracted_engine = effective_engine
+                extracted_format = effective_format
+                extracted_vision = effective_vision
+
+                for part in json_data["$multipart"]:
+                    if not isinstance(part, dict):
+                        continue
+                    headers = part.get("headers", {})
+                    disp = headers.get("Content-Disposition") or headers.get("content-disposition", "")
+                    name_m = re.search(r'name=["\']?([^"\';]+)["\']?', disp, re.IGNORECASE)
+                    fname_m = re.search(r'filename=["\']?([^"\';]+)["\']?', disp, re.IGNORECASE)
+                    part_name = name_m.group(1).lower() if name_m else ""
+                    part_fname = fname_m.group(1) if fname_m else None
+
+                    body = part.get("body")
+
+                    # Extract file part
+                    if part_name == "file" or part_fname or (isinstance(body, dict) and "$content" in body and fname_m):
+                        if part_fname:
+                            extracted_filename = part_fname
+                        if isinstance(body, dict) and "$content" in body:
+                            raw_val = body["$content"]
+                        elif isinstance(body, str):
+                            raw_val = body
+                        else:
+                            raw_val = str(body)
+
+                        try:
+                            extracted_content = _clean_and_decode_base64(raw_val)
+                        except Exception as err:
+                            logger.warning("Base64 decode failed for $multipart part: %s", err)
+                            extracted_content = raw_val.encode("utf-8")
+                    elif part_name == "engine":
+                        val = body.get("$content", body) if isinstance(body, dict) else body
+                        if val:
+                            extracted_engine = str(val).strip()
+                    elif part_name == "format":
+                        val = body.get("$content", body) if isinstance(body, dict) else body
+                        if val:
+                            extracted_format = str(val).strip()
+                    elif part_name == "ai_vision":
+                        val = body.get("$content", body) if isinstance(body, dict) else body
+                        if val:
+                            extracted_vision = str(val).strip()
+
+                if extracted_content:
+                    return extracted_content, extracted_filename, extracted_engine, extracted_format, extracted_vision
+
+            # 2B. Direct JSON with file / content field
+            raw_file = (
+                json_data.get("file")
+                or json_data.get("content")
+                or json_data.get("document")
+                or json_data.get("data")
+                or json_data.get("file_content")
+            )
+            if raw_file:
+                extracted_filename = (
+                    json_data.get("filename")
+                    or json_data.get("file_name")
+                    or json_data.get("name")
+                    or "document.pdf"
+                )
+                extracted_engine = json_data.get("engine") or effective_engine
+                extracted_format = json_data.get("format") or effective_format
+                extracted_vision = json_data.get("ai_vision", effective_vision)
+
+                if isinstance(raw_file, str):
+                    try:
+                        extracted_content = _clean_and_decode_base64(raw_file)
+                    except Exception:
+                        extracted_content = raw_file.encode("utf-8")
+                elif isinstance(raw_file, bytes):
+                    extracted_content = raw_file
+                else:
+                    extracted_content = str(raw_file).encode("utf-8")
+
+                return (
+                    extracted_content,
+                    extracted_filename,
+                    extracted_engine,
+                    extracted_format,
+                    str(extracted_vision) if extracted_vision is not None else None,
+                )
+
+        # 2C. Raw binary in body (application/pdf, application/octet-stream)
+        if len(body_bytes) > 0 and not json_data:
+            return body_bytes, "uploaded_file.pdf", effective_engine, effective_format, effective_vision
+
+    # 3. Fallback: try request.form() directly
+    try:
+        form = await request.form()
+        form_file = form.get("file")
+        if isinstance(form_file, UploadFile):
+            content = await form_file.read()
+            if content:
+                filename = form_file.filename or "uploaded_document"
+                return (
+                    content,
+                    filename,
+                    form.get("engine", effective_engine),
+                    form.get("format", effective_format),
+                    form.get("ai_vision", effective_vision),
+                )
+    except Exception:
+        pass
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Missing document file. Please upload via multipart/form-data ('file') or send JSON with base64 content ('file' or '$multipart').",
+    )
+
+
 @app.post("/api/v1/extract")
 async def api_extract(
-    file: UploadFile = File(...),
-    engine: str = Form("local"),
-    format: Optional[str] = Form("markdown"),
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    engine: Optional[str] = Form(None),
+    format: Optional[str] = Form(None),
     ai_vision: Optional[str] = Form(None),
     _auth: bool = Depends(verify_api_token),
 ):
     start_time = time.time()
     try:
-        content = await file.read()
-        if not content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        content, filename, selected_engine, selected_format, selected_vision = await parse_incoming_payload(
+            request=request,
+            file_upload=file,
+            engine_param=engine,
+            format_param=format,
+            ai_vision_param=ai_vision,
+        )
 
-        selected_engine = (engine or "local").lower().strip()
+        selected_engine = (selected_engine or "local").lower().strip()
         if selected_engine not in ("local", "cloud"):
             selected_engine = "local"
 
-        res = await extract_document(content, file.filename or "uploaded_file", selected_engine)
+        res = await extract_document(content, filename, selected_engine)
         duration_ms = int((time.time() - start_time) * 1000)
 
         images_data = []
@@ -202,7 +383,7 @@ async def api_extract(
             "success": True,
             "data": {
                 "content": res.content,
-                "output_format": format or "markdown",
+                "output_format": selected_format or "markdown",
                 "duration_ms": duration_ms,
                 "word_count": res.word_count,
                 "detected_type": res.detected_type,
@@ -214,6 +395,8 @@ async def api_extract(
                 },
             },
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Extraction failed: %s", e)
         return JSONResponse(
@@ -224,15 +407,17 @@ async def api_extract(
 
 @app.post("/api/v1/extract/raw")
 async def api_extract_raw(
-    file: UploadFile = File(...),
-    engine: str = Query("local"),
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    engine: Optional[str] = Query(None),
     _auth: bool = Depends(verify_api_token),
 ):
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-    res = await extract_document(content, file.filename or "uploaded_file", engine)
+    content, filename, selected_engine, selected_format, selected_vision = await parse_incoming_payload(
+        request=request,
+        file_upload=file,
+        engine_param=engine,
+    )
+    res = await extract_document(content, filename, selected_engine)
     return PlainTextResponse(res.content, media_type="text/markdown")
 
 
